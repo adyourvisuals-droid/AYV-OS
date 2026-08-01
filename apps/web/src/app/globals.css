@@ -1,0 +1,175 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Design tokens — docs/04-design-system.md
+ *
+ * Semantic names only. A component never references a raw palette value, so
+ * theming is a change in this file alone.
+ */
+
+:root {
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+
+  --bg-canvas: #fafafa;
+  --bg-surface: #ffffff;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f4f4f5;
+  --bg-glass: rgba(255, 255, 255, 0.72);
+
+  --text-primary: #09090b;
+  --text-secondary: #52525b;
+  --text-tertiary: #a1a1aa;
+
+  --border-subtle: #e4e4e7;
+  --border-strong: #d4d4d8;
+
+  --success: #16a34a;
+  --success-bg: #dcfce7;
+  --warning: #d97706;
+  --warning-bg: #fef3c7;
+  --danger: #dc2626;
+  --danger-bg: #fee2e2;
+  --info: #0891b2;
+  --info-bg: #cffafe;
+  --ai: #9333ea;
+  --ai-bg: #f3e8ff;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.dark {
+  --brand-50: #1e1b4b;
+  --brand-100: #312e81;
+  --brand-200: #3730a3;
+  --brand-400: #6366f1;
+  --brand-500: #818cf8;
+  --brand-600: #6366f1;
+  --brand-700: #4f46e5;
+
+  --bg-canvas: #0a0a0b;
+  --bg-surface: #141416;
+  --bg-raised: #1c1c1f;
+  --bg-sunken: #09090b;
+  --bg-glass: rgba(20, 20, 22, 0.72);
+
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #71717a;
+
+  --border-subtle: #27272a;
+  --border-strong: #3f3f46;
+
+  --success: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.14);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.14);
+  --danger: #ef4444;
+  --danger-bg: rgba(239, 68, 68, 0.14);
+  --info: #06b6d4;
+  --info-bg: rgba(6, 182, 212, 0.14);
+  --ai: #a855f7;
+  --ai-bg: rgba(168, 85, 247, 0.16);
+
+  /* Shadow reads as depth only against sufficient contrast, so alphas roughly
+     double in dark mode. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 0 3px rgba(129, 140, 248, 0.2);
+}
+
+@layer base {
+  * {
+    @apply border-subtle;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-canvas text-primary font-sans text-body-md;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Digits must align vertically across table rows and metric cards. */
+  .tabular,
+  table,
+  .metric {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-0;
+    box-shadow: var(--shadow-glow);
+    border-radius: 6px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  .glass {
+    background: var(--bg-glass);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden bg-sunken rounded-md;
+  }
+
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 animate-shimmer;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.06),
+      transparent
+    );
+  }
+}
+
+/* Everything collapses to instant when the user asks for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

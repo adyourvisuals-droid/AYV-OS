@@ -1,0 +1,24 @@
+{
+  "name": "@ayv/types",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"no lint config for @ayv/types\"",
+    "test": "echo \"no tests for @ayv/types\""
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

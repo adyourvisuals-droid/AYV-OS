@@ -1,0 +1,43 @@
+{
+  "name": "ayv-os",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AYV OS — the operating system of Ad Your Vision",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:api": "pnpm --filter @ayv/api dev",
+    "dev:web": "pnpm --filter @ayv/web dev",
+    "build": "pnpm --filter @ayv/types build && pnpm --filter @ayv/api build && pnpm --filter @ayv/web build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @ayv/api db:generate",
+    "db:migrate": "pnpm --filter @ayv/api db:migrate",
+    "db:push": "pnpm --filter @ayv/api db:push",
+    "db:seed": "pnpm --filter @ayv/api db:seed",
+    "db:studio": "pnpm --filter @ayv/api db:studio",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "setup": "pnpm install && pnpm db:generate"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "esbuild",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ayv-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ayv
+      POSTGRES_PASSWORD: ayv_local_password
+      POSTGRES_DB: ayv_os
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ayv -d ayv_os']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ayv-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: ayv-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://ayv:ayv_local_password@postgres:5432/ayv_os
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      PORT: 4000
+    env_file:
+      - .env
+    ports:
+      - '4000:4000'
+    profiles:
+      - full
+
+volumes:
+  postgres_data:
+  redis_data:
