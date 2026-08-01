@@ -4,6 +4,14 @@ import type { ApiResponse } from '@ayv/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
+/**
+ * Auth lives at same-origin Next.js API routes (see src/app/api/auth), not on
+ * the separate NestJS API — that's what lets login work on Vercel without a
+ * second deployed backend. Everything else in this file still targets
+ * NEXT_PUBLIC_API_URL, since the rest of the API is a separate deployable.
+ */
+const AUTH_URL = '/api/auth';
+
 const ACCESS_TOKEN_KEY = 'ayv.accessToken';
 const REFRESH_TOKEN_KEY = 'ayv.refreshToken';
 
@@ -62,7 +70,7 @@ async function refreshAccessToken(): Promise<boolean> {
     if (!refreshToken) return false;
 
     try {
-      const response = await fetch(`${API_URL}/auth/refresh`, {
+      const response = await fetch(`${AUTH_URL}/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
@@ -165,6 +173,49 @@ async function requestWithMeta<T>(
   return { data: payload.data, meta: (payload.meta ?? {}) as Record<string, unknown> };
 }
 
+/** Like `request()`, but targets the same-origin Next.js auth routes. */
+async function authRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { body, skipAuthRetry, headers, ...rest } = options;
+
+  const send = async (): Promise<Response> => {
+    const token = tokenStore.access;
+
+    return fetch(`${AUTH_URL}${path}`, {
+      ...rest,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  };
+
+  let response = await send();
+
+  if (response.status === 401 && !skipAuthRetry) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      response = await send();
+    } else if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login';
+      throw new ApiError('Session expired', 'UNAUTHENTICATED', 401);
+    }
+  }
+
+  const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+
+  if (!payload) {
+    throw new ApiError('The server returned an unreadable response', 'INTERNAL_ERROR', response.status);
+  }
+
+  if (!payload.success) {
+    throw new ApiError(payload.error.message, payload.error.code, response.status, payload.error.details);
+  }
+
+  return payload.data;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path, { method: 'GET' }),
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
@@ -174,16 +225,16 @@ export const api = {
 
   auth: {
     login: (email: string, password: string) =>
-      request<{
+      authRequest<{
         accessToken: string;
         refreshToken: string;
-        user: Record<string, unknown>;
-      }>('/auth/login', { method: 'POST', body: { email, password }, skipAuthRetry: true }),
+        expiresIn: number;
+      }>('/login', { method: 'POST', body: { email, password }, skipAuthRetry: true }),
 
     logout: async () => {
       const refreshToken = tokenStore.refresh;
       if (refreshToken) {
-        await request('/auth/logout', {
+        await authRequest('/logout', {
           method: 'POST',
           body: { refreshToken },
           skipAuthRetry: true,
@@ -192,7 +243,7 @@ export const api = {
       tokenStore.clear();
     },
 
-    me: () => request<CurrentUser>('/auth/me'),
+    me: () => authRequest<CurrentUser>('/me'),
   },
 };
 

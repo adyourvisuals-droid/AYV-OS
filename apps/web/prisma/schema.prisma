@@ -1,0 +1,130 @@
+// ═══════════════════════════════════════════════════════════════════════════
+//  AYV OS — Web app auth schema
+//
+//  ⚠️  THIS IS NOT THE SOURCE OF TRUTH FOR THE DATABASE SCHEMA.
+//  ⚠️  NEVER run `prisma migrate` or `prisma db push` against this file.
+//
+//  apps/api/prisma/schema.prisma owns every table and every migration. This
+//  file is a deliberately narrow subset — only the models and fields the
+//  Next.js auth routes touch — so that apps/web can generate its own Prisma
+//  Client and talk to the same production Postgres database without pulling
+//  in apps/api as a runtime dependency (which Vercel cannot run: it is a
+//  stateful NestJS server, not a serverless function).
+//
+//  Every model, field and enum below must stay byte-for-byte consistent with
+//  apps/api/prisma/schema.prisma. If a migration there renames or removes a
+//  column this file references, update this file in the same change.
+//
+//  Run only: `pnpm --filter @ayv/web db:generate` (a client-generation step,
+//  which never touches the database).
+// ═══════════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+  // A custom output path, outside node_modules/@prisma/client. Without this,
+  // pnpm resolves apps/api's and apps/web's `@prisma/client` dependency to
+  // the exact same physical store entry (same package, same version — pnpm
+  // has no way to know the two apps generate from different schemas), so
+  // generating this thin schema would silently overwrite apps/api's full
+  // client. A local output path makes the two fully independent.
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  EMPLOYEE
+  CLIENT
+  AI_AGENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  OFFBOARDED
+}
+
+enum PermissionScope {
+  ALL
+  TEAM
+  OWN
+}
+
+model Role {
+  id    String @id
+  key   String
+  name  String
+  level Int
+
+  permissions RolePermission[]
+  users       User[]
+}
+
+model Permission {
+  id  String @id
+  key String @unique
+
+  roles RolePermission[]
+  users UserPermission[]
+}
+
+model RolePermission {
+  id           String          @id
+  roleId       String
+  permissionId String
+  scope        PermissionScope
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+}
+
+model UserPermission {
+  id           String          @id
+  userId       String
+  permissionId String
+  scope        PermissionScope
+  granted      Boolean
+
+  user       User       @relation(fields: [userId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+}
+
+model User {
+  id             String     @id
+  organizationId String
+  email          String
+  passwordHash   String?
+  name           String
+  avatarUrl      String?
+  userType       UserType
+  status         UserStatus
+  roleId         String
+  teamId         String?
+  clientId       String?
+  deletedAt      DateTime?
+  lastLoginAt    DateTime?
+  lastActiveAt   DateTime?
+
+  role            Role             @relation(fields: [roleId], references: [id])
+  userPermissions UserPermission[]
+  sessions        Session[]
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  familyId         String
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}

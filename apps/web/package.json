@@ -8,12 +8,17 @@
     "start": "next start -p 3000",
     "typecheck": "pnpm --filter @ayv/types build && tsc --noEmit",
     "lint": "next lint --max-warnings 0",
-    "test": "echo \"no web tests yet\""
+    "test": "echo \"no web tests yet\"",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate"
   },
   "dependencies": {
     "@ayv/types": "workspace:*",
+    "@node-rs/argon2": "^2.0.2",
+    "@prisma/client": "6.19.3",
     "clsx": "^2.1.1",
     "framer-motion": "^11.15.0",
+    "jose": "^5.9.6",
     "lucide-react": "^0.469.0",
     "next": "^15.1.3",
     "next-themes": "^0.4.4",
@@ -30,6 +35,7 @@
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.1.3",
     "postcss": "^8.4.49",
+    "prisma": "^6.2.0",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.6.3"
   }
