@@ -1,0 +1,631 @@
+// AYV OS — Prisma schema
+// Core (multi-tenant/auth) models live at the top; each product module's
+// models are grouped below under a header comment. New modules should
+// follow the same pattern: their own model group + enums, scoped by
+// organizationId, appended to this file.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// CORE: Organizations, Users, Auth (NextAuth/Auth.js)
+// ---------------------------------------------------------------------------
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+
+  companies         Company[]
+  contacts          Contact[]
+  leads             Lead[]
+  pipelineStages    PipelineStage[]
+  deals             Deal[]
+  activities        Activity[]
+  proposals         Proposal[]
+  quotations        Quotation[]
+  contracts         Contract[]
+  automationRules   AutomationRule[]
+  leadScoringRules  LeadScoringRule[]
+  automationRunLogs AutomationRunLog[]
+
+  @@map("organizations")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts    Account[]
+  sessions    Session[]
+  memberships Membership[]
+
+  ownedCompanies     Company[]  @relation("CompanyOwner")
+  ownedContacts      Contact[]  @relation("ContactOwner")
+  ownedLeads         Lead[]     @relation("LeadOwner")
+  ownedDeals         Deal[]     @relation("DealOwner")
+  assignedActivities Activity[] @relation("ActivityAssignee")
+  createdActivities  Activity[] @relation("ActivityCreator")
+
+  @@map("users")
+}
+
+model Membership {
+  id             String         @id @default(cuid())
+  role           MembershipRole @default(MEMBER)
+  createdAt      DateTime       @default(now())
+  userId         String
+  organizationId String
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("memberships")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// CRM MODULE: Companies & Contacts
+// ---------------------------------------------------------------------------
+
+model Company {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  domain         String?
+  industry       String?
+  size           String?
+  website        String?
+  phone          String?
+  address        String?
+  city           String?
+  country        String?
+  description    String?  @db.Text
+  ownerId        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User?        @relation("CompanyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  contacts Contact[]
+  leads    Lead[]
+  deals    Deal[]
+
+  activities Activity[]
+  proposals  Proposal[]
+  quotations Quotation[]
+  contracts  Contract[]
+
+  @@index([organizationId])
+  @@map("companies")
+}
+
+model Contact {
+  id             String   @id @default(cuid())
+  organizationId String
+  firstName      String
+  lastName       String?
+  email          String?
+  phone          String?
+  whatsapp       String?
+  title          String?
+  companyId      String?
+  ownerId        String?
+  tags           String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  owner        User?        @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  leads      Lead[]
+  deals      Deal[]
+  activities Activity[]
+  proposals  Proposal[]
+  quotations Quotation[]
+  contracts  Contract[]
+
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("contacts")
+}
+
+// ---------------------------------------------------------------------------
+// CRM MODULE: Lead Management & Lead Scoring
+// ---------------------------------------------------------------------------
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  UNQUALIFIED
+  CONVERTED
+}
+
+enum LeadSource {
+  WEBSITE
+  REFERRAL
+  SOCIAL_MEDIA
+  EMAIL_CAMPAIGN
+  ADVERTISEMENT
+  EVENT
+  COLD_OUTREACH
+  WHATSAPP
+  OTHER
+}
+
+model Lead {
+  id              String     @id @default(cuid())
+  organizationId  String
+  name            String
+  email           String?
+  phone           String?
+  whatsapp        String?
+  source          LeadSource @default(OTHER)
+  status          LeadStatus @default(NEW)
+  score           Int        @default(0)
+  budget          Decimal?   @db.Decimal(14, 2)
+  notes           String?    @db.Text
+  companyId       String?
+  contactId       String?
+  ownerId         String?
+  convertedDealId String?    @unique
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company       Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact       Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner         User?        @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  convertedDeal Deal?        @relation("LeadConvertedDeal", fields: [convertedDealId], references: [id], onDelete: SetNull)
+
+  deals      Deal[]     @relation("DealSourceLead")
+  activities Activity[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("leads")
+}
+
+enum ScoreOperator {
+  EQUALS
+  NOT_EQUALS
+  CONTAINS
+  GREATER_THAN
+  LESS_THAN
+  IS_SET
+}
+
+model LeadScoringRule {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  field          String // e.g. "source", "budget", "email", "status"
+  operator       ScoreOperator
+  value          String?
+  points         Int
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("lead_scoring_rules")
+}
+
+// ---------------------------------------------------------------------------
+// CRM MODULE: Deal Pipeline
+// ---------------------------------------------------------------------------
+
+model PipelineStage {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  order          Int
+  probability    Int      @default(0) // 0-100, used for weighted forecast
+  isWon          Boolean  @default(false)
+  isLost         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals        Deal[]
+
+  @@unique([organizationId, order])
+  @@map("pipeline_stages")
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+model Deal {
+  id                String     @id @default(cuid())
+  organizationId    String
+  title             String
+  value             Decimal    @default(0) @db.Decimal(14, 2)
+  currency          String     @default("USD")
+  stageId           String
+  status            DealStatus @default(OPEN)
+  probability       Int        @default(0)
+  expectedCloseDate DateTime?
+  closedAt          DateTime?
+  lostReason        String?
+  contactId         String?
+  companyId         String?
+  ownerId           String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stage        PipelineStage @relation(fields: [stageId], references: [id])
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  owner        User?         @relation("DealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  sourceLeads       Lead[] @relation("DealSourceLead")
+  convertedFromLead Lead?  @relation("LeadConvertedDeal")
+
+  activities Activity[]
+  proposals  Proposal[]
+  quotations Quotation[]
+  contracts  Contract[]
+
+  @@index([organizationId])
+  @@index([stageId])
+  @@map("deals")
+}
+
+// ---------------------------------------------------------------------------
+// CRM MODULE: Activities (Notes, Tasks, Meetings, Calls, Follow-ups,
+// Email Timeline, WhatsApp Timeline) — a unified, typed activity/timeline
+// model. Each activity type reuses this table with a discriminating `type`
+// and optional type-specific columns, and can attach to any of Lead /
+// Deal / Contact / Company.
+// ---------------------------------------------------------------------------
+
+enum ActivityType {
+  NOTE
+  TASK
+  MEETING
+  CALL
+  FOLLOW_UP
+  EMAIL
+  WHATSAPP
+}
+
+enum ActivityStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum ActivityDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallOutcome {
+  CONNECTED
+  NO_ANSWER
+  VOICEMAIL
+  BUSY
+  WRONG_NUMBER
+}
+
+model Activity {
+  id             String         @id @default(cuid())
+  organizationId String
+  type           ActivityType
+  subject        String
+  body           String?        @db.Text
+  status         ActivityStatus @default(OPEN)
+
+  // Scheduling (tasks, meetings, follow-ups)
+  dueDate   DateTime?
+  startTime DateTime?
+  endTime   DateTime?
+  location  String?
+
+  // Calls
+  duration Int? // seconds
+  outcome  CallOutcome?
+
+  // Direction + addressing (calls, email, whatsapp)
+  direction   ActivityDirection?
+  fromAddress String?
+  toAddress   String?
+
+  // Relations to CRM records (any subset may be set)
+  leadId    String?
+  dealId    String?
+  contactId String?
+  companyId String?
+
+  assignedToId String?
+  createdById  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company      Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignedTo   User?        @relation("ActivityAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy    User?        @relation("ActivityCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, type])
+  @@index([leadId])
+  @@index([dealId])
+  @@index([contactId])
+  @@index([companyId])
+  @@map("activities")
+}
+
+// ---------------------------------------------------------------------------
+// CRM MODULE: Proposal Generator & Quotations
+// ---------------------------------------------------------------------------
+
+enum DocumentStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+model Proposal {
+  id             String         @id @default(cuid())
+  organizationId String
+  number         String
+  title          String
+  dealId         String?
+  contactId      String?
+  companyId      String?
+  status         DocumentStatus @default(DRAFT)
+  summary        String?        @db.Text
+  totalAmount    Decimal        @default(0) @db.Decimal(14, 2)
+  currency       String         @default("USD")
+  validUntil     DateTime?
+  sentAt         DateTime?
+  respondedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal?          @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contact      Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company      Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  items        ProposalItem[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId])
+  @@map("proposals")
+}
+
+model ProposalItem {
+  id          String  @id @default(cuid())
+  proposalId  String
+  name        String
+  description String?
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @default(0) @db.Decimal(14, 2)
+  order       Int     @default(0)
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@map("proposal_items")
+}
+
+model Quotation {
+  id             String         @id @default(cuid())
+  organizationId String
+  number         String
+  title          String
+  dealId         String?
+  contactId      String?
+  companyId      String?
+  status         DocumentStatus @default(DRAFT)
+  taxPercent     Decimal        @default(0) @db.Decimal(5, 2)
+  totalAmount    Decimal        @default(0) @db.Decimal(14, 2)
+  currency       String         @default("USD")
+  validUntil     DateTime?
+  sentAt         DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal?           @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contact      Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company      Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  items        QuotationItem[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId])
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id          String  @id @default(cuid())
+  quotationId String
+  name        String
+  description String?
+  quantity    Decimal @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal @default(0) @db.Decimal(14, 2)
+  order       Int     @default(0)
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@map("quotation_items")
+}
+
+// ---------------------------------------------------------------------------
+// CRM MODULE: Contracts
+// ---------------------------------------------------------------------------
+
+enum ContractStatus {
+  DRAFT
+  SENT
+  SIGNED
+  EXPIRED
+  TERMINATED
+}
+
+model Contract {
+  id             String         @id @default(cuid())
+  organizationId String
+  number         String
+  title          String
+  dealId         String?
+  contactId      String?
+  companyId      String?
+  status         ContractStatus @default(DRAFT)
+  value          Decimal        @default(0) @db.Decimal(14, 2)
+  currency       String         @default("USD")
+  startDate      DateTime?
+  endDate        DateTime?
+  signedAt       DateTime?
+  content        String?        @db.Text
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal         Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, number])
+  @@index([organizationId])
+  @@map("contracts")
+}
+
+// ---------------------------------------------------------------------------
+// CRM MODULE: Automation Rules
+// ---------------------------------------------------------------------------
+
+enum AutomationTrigger {
+  LEAD_CREATED
+  LEAD_STATUS_CHANGED
+  DEAL_CREATED
+  DEAL_STAGE_CHANGED
+  TASK_OVERDUE
+  FOLLOW_UP_DUE
+  ACTIVITY_CREATED
+}
+
+enum AutomationActionType {
+  ASSIGN_OWNER
+  CHANGE_STATUS
+  CREATE_TASK
+  CREATE_FOLLOW_UP
+  ADJUST_SCORE
+  MOVE_STAGE
+}
+
+model AutomationRule {
+  id             String            @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  trigger        AutomationTrigger
+  conditions     Json              @default("[]")
+  actions        Json              @default("[]")
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  runLogs      AutomationRunLog[]
+
+  @@index([organizationId])
+  @@map("automation_rules")
+}
+
+model AutomationRunLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  ruleId         String
+  entityType     String
+  entityId       String
+  result         String
+  message        String?
+  createdAt      DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rule         AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([ruleId])
+  @@map("automation_run_logs")
+}
