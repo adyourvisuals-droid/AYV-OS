@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build",
+    "build": "pnpm --filter @ayv/types build && next build",
     "start": "next start -p 3000",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm --filter @ayv/types build && tsc --noEmit",
     "lint": "next lint --max-warnings 0",
     "test": "echo \"no web tests yet\""
   },

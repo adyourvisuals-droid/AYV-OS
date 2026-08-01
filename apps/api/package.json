@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "nest start --watch",
-    "build": "nest build",
+    "build": "pnpm --filter @ayv/types build && prisma generate && nest build",
     "start": "node dist/main",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm --filter @ayv/types build && prisma generate && tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
