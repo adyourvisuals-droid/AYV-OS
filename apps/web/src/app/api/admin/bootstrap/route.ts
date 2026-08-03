@@ -1,14 +1,15 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 
+import { Client } from 'pg';
+
 import type { NextRequest } from 'next/server';
 
 import { ALL_PERMISSIONS, SYSTEM_ROLES } from '@ayv/types';
 
 import { hashPassword } from '@/lib/server/auth';
-import { prisma } from '@/lib/server/db';
 import { errorResponse, successResponse } from '@/lib/server/http';
 import { MIGRATION_CHECKSUM, MIGRATION_NAME, MIGRATION_SQL } from '@/lib/server/migration-sql';
-import { splitSqlStatements } from '@/lib/server/sql-statements';
+import { buildMultiRowInsert } from '@/lib/server/pg-batch';
 
 export const runtime = 'nodejs';
 
@@ -22,22 +23,31 @@ export const runtime = 'nodejs';
  * project doesn't have a terminal available either. This route lets the
  * database be provisioned with one authenticated HTTPS request instead.
  *
+ * Uses `pg` directly rather than Prisma's `$executeRawUnsafe`: Prisma always
+ * sends raw queries over the extended (prepared-statement) protocol, which
+ * Postgres restricts to one statement per call — a 321-statement migration
+ * would be 321 round trips. Over a real network (as opposed to the loopback
+ * connection this was first tested against) that was slow enough to exceed
+ * Vercel's function execution limit and fail partway through. `pg`'s simple
+ * query protocol executes an entire unparameterized multi-statement string
+ * in one round trip, and multi-row `INSERT ... VALUES (...), (...), ...` is
+ * one round trip regardless of driver — both are used throughout to keep
+ * this to roughly a dozen round trips total instead of roughly a thousand.
+ *
  * Safety properties:
  *  - Gated behind BOOTSTRAP_SECRET, compared in constant time.
- *  - Fully idempotent: safe to call multiple times. Migration and seed steps
- *    each check current state first and skip whatever's already done.
+ *  - Fully idempotent: safe to call multiple times. Every step checks
+ *    current state first and skips whatever's already done.
  *  - Writes a real `_prisma_migrations` bookkeeping row with the exact
  *    checksum Prisma's own CLI computes (verified empirically against a real
- *    `prisma migrate deploy` run — see the commit that added this file), so
- *    a future genuine `prisma migrate deploy` against the same database
- *    recognises this migration as already applied instead of failing on
- *    already-existing tables.
+ *    `prisma migrate deploy` run), so a future genuine `migrate deploy`
+ *    against the same database recognises this migration as already applied
+ *    instead of failing on already-existing tables.
  *  - Seeds the organisation, all 12 system roles with their full permission
  *    grants, and the demo users — enough for every role to log in with
- *    correct permissions. It deliberately does NOT seed the larger CRM mock
- *    dataset (clients/leads/projects/invoices/...); that still requires
- *    running the full apps/api/prisma/seed.ts from an environment with
- *    direct database access.
+ *    correct permissions. Deliberately does not seed the larger CRM mock
+ *    dataset; that still needs the full apps/api/prisma/seed.ts run from an
+ *    environment with direct database access.
  *
  * Intended to be called once, then the BOOTSTRAP_SECRET env var removed.
  */
@@ -67,7 +77,6 @@ function authorised(req: NextRequest): boolean {
   const a = Buffer.from(provided);
   const b = Buffer.from(secret);
 
-  // timingSafeEqual throws on length mismatch rather than returning false.
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
 }
@@ -77,232 +86,281 @@ export async function POST(req: NextRequest) {
     return errorResponse(401, 'UNAUTHENTICATED', 'Invalid or missing bootstrap secret');
   }
 
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    return errorResponse(500, 'INTERNAL_ERROR', 'DATABASE_URL is not configured');
+  }
+
+  const client = new Client({ connectionString: databaseUrl });
   const steps: string[] = [];
 
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await client.connect();
+    await client.query('SELECT 1');
     steps.push('connectivity: ok');
-  } catch (error) {
-    return errorResponse(
-      503,
-      'SERVICE_UNAVAILABLE',
-      `Could not connect to the database: ${error instanceof Error ? error.message : String(error)}`,
+
+    // ─── Migration ─────────────────────────────────────────────────────────
+
+    const bookkeepingExists = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.tables WHERE table_name = '_prisma_migrations'
+       ) as exists`,
     );
-  }
 
-  // ─── Migration ───────────────────────────────────────────────────────────
+    const hasMigrationRow = bookkeepingExists.rows[0]?.exists
+      ? (
+          await client.query<{ count: number }>(
+            `SELECT count(*)::int as count FROM "_prisma_migrations" WHERE migration_name = $1`,
+            [MIGRATION_NAME],
+          )
+        ).rows[0].count > 0
+      : false;
 
-  const migrationApplied = await prisma.$queryRawUnsafe<{ exists: boolean }[]>(
-    `SELECT EXISTS (
-       SELECT 1 FROM information_schema.tables WHERE table_name = '_prisma_migrations'
-     ) as exists`,
-  );
-
-  const hasBookkeepingTable = migrationApplied[0]?.exists === true;
-
-  const hasMigrationRow = hasBookkeepingTable
-    ? (
-        await prisma.$queryRawUnsafe<{ count: bigint }[]>(
-          `SELECT count(*)::int as count FROM "_prisma_migrations" WHERE migration_name = $1`,
-          MIGRATION_NAME,
-        )
-      )[0]?.count > 0
-    : false;
-
-  if (hasMigrationRow) {
-    steps.push('migration: already applied, skipped');
-  } else {
-    const statements = splitSqlStatements(MIGRATION_SQL);
-
-    const bookkeepingDdl = `
-      CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
-        "id" VARCHAR(36) PRIMARY KEY,
-        "checksum" VARCHAR(64) NOT NULL,
-        "finished_at" TIMESTAMPTZ,
-        "migration_name" VARCHAR(255) NOT NULL,
-        "logs" TEXT,
-        "rolled_back_at" TIMESTAMPTZ,
-        "started_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
-        "applied_steps_count" INTEGER NOT NULL DEFAULT 0
-      );
-    `;
-
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.$executeRawUnsafe(bookkeepingDdl);
-        for (const statement of statements) {
-          await tx.$executeRawUnsafe(statement);
-        }
-        await tx.$executeRawUnsafe(
-          `INSERT INTO "_prisma_migrations"
-             (id, checksum, migration_name, started_at, finished_at, applied_steps_count)
-           VALUES ($1, $2, $3, now(), now(), $4)`,
-          randomUUID(),
-          MIGRATION_CHECKSUM,
-          MIGRATION_NAME,
-          statements.length,
+    if (hasMigrationRow) {
+      steps.push('migration: already applied, skipped');
+    } else {
+      // One round trip for the bookkeeping table plus the entire migration —
+      // `pg`'s simple query protocol runs an unparameterized multi-statement
+      // string as a single request. The values below are fixed constants
+      // this file defines, not request input, so inlining them is safe.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
+          "id" VARCHAR(36) PRIMARY KEY,
+          "checksum" VARCHAR(64) NOT NULL,
+          "finished_at" TIMESTAMPTZ,
+          "migration_name" VARCHAR(255) NOT NULL,
+          "logs" TEXT,
+          "rolled_back_at" TIMESTAMPTZ,
+          "started_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+          "applied_steps_count" INTEGER NOT NULL DEFAULT 0
         );
-      },
-      { timeout: 120_000, maxWait: 10_000 },
-    );
 
-    steps.push(`migration: applied ${statements.length} statements`);
-  }
+        ${MIGRATION_SQL}
+      `);
 
-  // ─── Seed: organisation ──────────────────────────────────────────────────
-
-  const existingOrg = await prisma.$queryRawUnsafe<{ id: string }[]>(
-    `SELECT id FROM "Organization" WHERE slug = $1`,
-    'ad-your-vision',
-  );
-
-  let organizationId: string;
-
-  if (existingOrg[0]) {
-    organizationId = existingOrg[0].id;
-    steps.push('organisation: already exists, skipped');
-  } else {
-    organizationId = randomUUID();
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "Organization"
-         (id, name, slug, "legalName", website, email, city, state, "stateCode",
-          country, currency, timezone, "fiscalYearStartMonth", "workingDays",
-          "workDayStart", "workDayEnd", settings, "featureFlags", "createdAt", "updatedAt")
-       VALUES
-         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, '{}', '{}', now(), now())`,
-      organizationId,
-      'Ad Your Vision',
-      'ad-your-vision',
-      'Ad Your Vision Media Pvt. Ltd.',
-      'https://adyourvision.com',
-      'hello@adyourvision.com',
-      'Mumbai',
-      'Maharashtra',
-      '27',
-      'India',
-      'INR',
-      'Asia/Kolkata',
-      4,
-      [1, 2, 3, 4, 5, 6],
-      '10:00',
-      '19:00',
-    );
-    steps.push('organisation: created');
-  }
-
-  // ─── Seed: permissions ───────────────────────────────────────────────────
-
-  // apps/web's thin Permission model omits `domain` (only used by the RBAC
-  // editor UI, which lives in the NestJS API, not here) — the underlying
-  // table still has the column with no default, so it's left unset here and
-  // is nullable at the DB level.
-  await prisma.$transaction(
-    ALL_PERMISSIONS.map((key) =>
-      prisma.$executeRawUnsafe(
-        `INSERT INTO "Permission" (id, key, domain) VALUES ($1, $2, $3)
-         ON CONFLICT (key) DO NOTHING`,
-        randomUUID(),
-        key,
-        key.split(':')[0],
-      ),
-    ),
-  );
-
-  const permissionRows = await prisma.permission.findMany({ select: { id: true, key: true } });
-  const permissionIdByKey = new Map(permissionRows.map((row) => [row.key, row.id]));
-  steps.push(`permissions: ${permissionRows.length} present`);
-
-  // ─── Seed: roles ─────────────────────────────────────────────────────────
-  //
-  // Raw SQL throughout, not the typed client: apps/web's Prisma schema is a
-  // deliberately narrow subset (see prisma/schema.prisma) that omits columns
-  // like Role.organizationId / isSystem — present and NOT NULL on the real
-  // table, but not worth declaring in a client that otherwise never needs
-  // them. Raw SQL isn't constrained by the declared model, so it can still
-  // populate every column the real table requires.
-
-  const existingRoles = await prisma.role.findMany({ select: { key: true, id: true } });
-  const roleIdByKey = new Map(existingRoles.map((role) => [role.key, role.id]));
-
-  let rolesCreated = 0;
-
-  for (const definition of SYSTEM_ROLES) {
-    if (roleIdByKey.has(definition.key)) continue;
-
-    const grants =
-      definition.permissions === '*'
-        ? ALL_PERMISSIONS.map((permission) => ({ permission, scope: 'ALL' as const }))
-        : definition.permissions;
-
-    const deduped = new Map<string, 'ALL' | 'TEAM' | 'OWN'>();
-    for (const grant of grants) deduped.set(grant.permission, grant.scope ?? 'ALL');
-
-    const roleId = randomUUID();
-
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "Role" (id, "organizationId", key, name, description, "isSystem", level, "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, true, $6, now(), now())`,
-      roleId,
-      organizationId,
-      definition.key,
-      definition.name,
-      definition.description,
-      definition.level,
-    );
-
-    for (const [permissionKey, scope] of deduped) {
-      const permissionId = permissionIdByKey.get(permissionKey);
-      if (!permissionId) continue;
-
-      await prisma.$executeRawUnsafe(
-        `INSERT INTO "RolePermission" (id, "roleId", "permissionId", scope)
-         VALUES ($1, $2, $3, $4::"PermissionScope")`,
-        randomUUID(),
-        roleId,
-        permissionId,
-        scope,
+      await client.query(
+        `INSERT INTO "_prisma_migrations"
+           (id, checksum, migration_name, started_at, finished_at, applied_steps_count)
+         VALUES ($1, $2, $3, now(), now(), $4)`,
+        [randomUUID(), MIGRATION_CHECKSUM, MIGRATION_NAME, 321],
       );
+
+      steps.push('migration: applied');
     }
 
-    roleIdByKey.set(definition.key, roleId);
-    rolesCreated += 1;
-  }
+    // ─── Seed: organisation ──────────────────────────────────────────────────
 
-  steps.push(`roles: ${rolesCreated} created, ${roleIdByKey.size} total`);
-
-  // ─── Seed: demo users ────────────────────────────────────────────────────
-
-  const passwordHash = await hashPassword(DEMO_PASSWORD);
-  let usersCreated = 0;
-
-  for (const person of PEOPLE) {
-    const existing = await prisma.user.findFirst({ where: { email: person.email } });
-    if (existing) continue;
-
-    const roleId = roleIdByKey.get(person.role);
-    if (!roleId) continue;
-
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "User"
-         (id, "organizationId", email, "passwordHash", name, "userType", status,
-          "roleId", designation, department, "joinedAt", "passwordChangedAt",
-          "lastActiveAt", theme, preferences, "mfaEnabled", "createdAt", "updatedAt")
-       VALUES
-         ($1, $2, $3, $4, $5, 'EMPLOYEE', 'ACTIVE', $6, $7, $8, now(), now(), now(),
-          'system', '{}', false, now(), now())`,
-      randomUUID(),
-      organizationId,
-      person.email,
-      passwordHash,
-      person.name,
-      roleId,
-      person.designation,
-      person.department,
+    const existingOrg = await client.query<{ id: string }>(
+      `SELECT id FROM "Organization" WHERE slug = $1`,
+      ['ad-your-vision'],
     );
-    usersCreated += 1;
+
+    let organizationId: string;
+
+    if (existingOrg.rows[0]) {
+      organizationId = existingOrg.rows[0].id;
+      steps.push('organisation: already exists, skipped');
+    } else {
+      organizationId = randomUUID();
+      await client.query(
+        `INSERT INTO "Organization"
+           (id, name, slug, "legalName", website, email, city, state, "stateCode",
+            country, currency, timezone, "fiscalYearStartMonth", "workingDays",
+            "workDayStart", "workDayEnd", settings, "featureFlags", "createdAt", "updatedAt")
+         VALUES
+           ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, '{}', '{}', now(), now())`,
+        [
+          organizationId,
+          'Ad Your Vision',
+          'ad-your-vision',
+          'Ad Your Vision Media Pvt. Ltd.',
+          'https://adyourvision.com',
+          'hello@adyourvision.com',
+          'Mumbai',
+          'Maharashtra',
+          '27',
+          'India',
+          'INR',
+          'Asia/Kolkata',
+          4,
+          [1, 2, 3, 4, 5, 6],
+          '10:00',
+          '19:00',
+        ],
+      );
+      steps.push('organisation: created');
+    }
+
+    // ─── Seed: permissions ───────────────────────────────────────────────────
+
+    const permissionInsert = buildMultiRowInsert(
+      'Permission',
+      ['id', 'key', 'domain'],
+      ALL_PERMISSIONS.map((key) => [randomUUID(), key, key.split(':')[0]]),
+      'ON CONFLICT (key) DO NOTHING',
+    );
+    await client.query(permissionInsert.text, permissionInsert.values);
+
+    const permissionRows = await client.query<{ id: string; key: string }>(
+      `SELECT id, key FROM "Permission"`,
+    );
+    const permissionIdByKey = new Map(permissionRows.rows.map((row) => [row.key, row.id]));
+    steps.push(`permissions: ${permissionRows.rows.length} present`);
+
+    // ─── Seed: roles + grants ────────────────────────────────────────────────
+    //
+    // Self-healing, not just idempotent: an earlier, slower version of this
+    // route (hundreds of unbatched round trips) could be killed by Vercel's
+    // function execution limit partway through a production run, potentially
+    // leaving a role row created with zero permission grants. Rather than
+    // trusting "the role exists" to mean "the role is fully set up", roles
+    // with no existing grants get their grants filled in regardless.
+
+    const existingRoles = await client.query<{ key: string; id: string }>(`SELECT id, key FROM "Role"`);
+    const roleIdByKey = new Map(existingRoles.rows.map((row) => [row.key, row.id]));
+
+    const existingGrantCounts = await client.query<{ roleId: string; count: number }>(
+      `SELECT "roleId", count(*)::int as count FROM "RolePermission" GROUP BY "roleId"`,
+    );
+    const grantCountByRoleId = new Map(existingGrantCounts.rows.map((row) => [row.roleId, row.count]));
+
+    const roleRows: unknown[][] = [];
+    const grantRows: unknown[][] = [];
+    let rolesHealed = 0;
+
+    for (const definition of SYSTEM_ROLES) {
+      let roleId = roleIdByKey.get(definition.key);
+
+      if (!roleId) {
+        roleId = randomUUID();
+        roleIdByKey.set(definition.key, roleId);
+        roleRows.push([
+          roleId,
+          organizationId,
+          definition.key,
+          definition.name,
+          definition.description,
+          true,
+          definition.level,
+          new Date(),
+        ]);
+      } else if ((grantCountByRoleId.get(roleId) ?? 0) > 0) {
+        // Role exists and already has grants — genuinely done, skip.
+        continue;
+      } else {
+        rolesHealed += 1;
+      }
+
+      const grants =
+        definition.permissions === '*'
+          ? ALL_PERMISSIONS.map((permission) => ({ permission, scope: 'ALL' as const }))
+          : definition.permissions;
+
+      const deduped = new Map<string, 'ALL' | 'TEAM' | 'OWN'>();
+      for (const grant of grants) deduped.set(grant.permission, grant.scope ?? 'ALL');
+
+      for (const [permissionKey, scope] of deduped) {
+        const permissionId = permissionIdByKey.get(permissionKey);
+        if (permissionId) grantRows.push([randomUUID(), roleId, permissionId, scope]);
+      }
+    }
+
+    if (roleRows.length > 0) {
+      const roleInsert = buildMultiRowInsert(
+        'Role',
+        ['id', 'organizationId', 'key', 'name', 'description', 'isSystem', 'level', 'updatedAt'],
+        roleRows,
+      );
+      await client.query(roleInsert.text, roleInsert.values);
+    }
+
+    if (grantRows.length > 0) {
+      // A single INSERT with ~700 value rows is still one round trip.
+      const grantInsert = buildMultiRowInsert(
+        'RolePermission',
+        ['id', 'roleId', 'permissionId', 'scope'],
+        grantRows,
+      );
+      await client.query(grantInsert.text, grantInsert.values);
+    }
+
+    steps.push(
+      `roles: ${roleRows.length} created, ${rolesHealed} healed (missing grants filled in), ` +
+        `${grantRows.length} permission grants written, ${roleIdByKey.size} total`,
+    );
+
+    // ─── Seed: demo users ────────────────────────────────────────────────────
+
+    const existingUsers = await client.query<{ email: string }>(
+      `SELECT email FROM "User" WHERE email = ANY($1::text[])`,
+      [PEOPLE.map((person) => person.email)],
+    );
+    const existingEmails = new Set(existingUsers.rows.map((row) => row.email));
+
+    const newPeople = PEOPLE.filter((person) => !existingEmails.has(person.email) && roleIdByKey.has(person.role));
+
+    if (newPeople.length > 0) {
+      const passwordHash = await hashPassword(DEMO_PASSWORD);
+
+      const now = new Date();
+
+      const userInsert = buildMultiRowInsert(
+        'User',
+        [
+          'id',
+          'organizationId',
+          'email',
+          'passwordHash',
+          'name',
+          'userType',
+          'status',
+          'roleId',
+          'designation',
+          'department',
+          'theme',
+          'preferences',
+          'mfaEnabled',
+          'joinedAt',
+          'passwordChangedAt',
+          'lastActiveAt',
+          'updatedAt',
+        ],
+        newPeople.map((person) => [
+          randomUUID(),
+          organizationId,
+          person.email,
+          passwordHash,
+          person.name,
+          'EMPLOYEE',
+          'ACTIVE',
+          roleIdByKey.get(person.role),
+          person.designation,
+          person.department,
+          'system',
+          '{}',
+          false,
+          now,
+          now,
+          now,
+          now,
+        ]),
+      );
+
+      await client.query(userInsert.text, userInsert.values);
+    }
+
+    steps.push(`users: ${newPeople.length} created`);
+
+    return successResponse({ steps, organizationId });
+  } catch (error) {
+    return errorResponse(
+      500,
+      'INTERNAL_ERROR',
+      `Bootstrap failed at step "${steps[steps.length - 1] ?? 'connect'}": ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    await client.end().catch(() => undefined);
   }
-
-  steps.push(`users: ${usersCreated} created`);
-
-  return successResponse({ steps, organizationId });
 }
