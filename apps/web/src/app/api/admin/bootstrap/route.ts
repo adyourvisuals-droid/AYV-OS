@@ -91,11 +91,38 @@ export async function POST(req: NextRequest) {
     return errorResponse(500, 'INTERNAL_ERROR', 'DATABASE_URL is not configured');
   }
 
-  const client = new Client({ connectionString: databaseUrl });
+  // Managed Postgres providers often present a cert chain Node's default
+  // trust store doesn't recognise; `sslmode=require` in the connection
+  // string only requires *some* TLS, so skipping certificate validation is
+  // still an encrypted connection, just not certificate-validated. Only
+  // applied when the connection string actually asks for SSL — local
+  // Postgres in development has no SSL listener at all, and forcing a TLS
+  // handshake against it would break local testing.
+  const wantsSsl = /sslmode=require|sslmode=prefer/.test(databaseUrl);
+
+  const client = new Client({
+    connectionString: databaseUrl,
+    ...(wantsSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+    // Bounded connect/query timeouts turn a silent network-level hang into
+    // a real, catchable error instead of running past the platform's
+    // function time limit with no diagnostic information at all.
+    connectionTimeoutMillis: 10_000,
+    query_timeout: 60_000,
+  });
   const steps: string[] = [];
 
   try {
-    await client.connect();
+    // A hard backstop independent of `connectionTimeoutMillis`: if the
+    // driver's own timeout option doesn't fire for some reason specific to
+    // this runtime, this still turns a hang into a clear, catchable error
+    // within a bounded time instead of running until the platform kills
+    // the function with no diagnostic information at all.
+    await Promise.race([
+      client.connect(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('connect() did not resolve within 12s')), 12_000),
+      ),
+    ]);
     await client.query('SELECT 1');
     steps.push('connectivity: ok');
 
