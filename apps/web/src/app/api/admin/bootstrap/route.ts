@@ -190,10 +190,13 @@ const MONTHLY_COSTS: { title: string; category: string; amount: number; day: num
 ];
 
 function authorised(req: NextRequest): boolean {
-  const secret = process.env.BOOTSTRAP_SECRET;
+  // .trim(): a trailing newline from copy/pasting the secret into Vercel's
+  // env var UI is a common, invisible cause of an otherwise-correct secret
+  // never matching.
+  const secret = process.env.BOOTSTRAP_SECRET?.trim();
   if (!secret) return false;
 
-  const provided = req.headers.get('x-bootstrap-secret') ?? '';
+  const provided = (req.headers.get('x-bootstrap-secret') ?? '').trim();
   const a = Buffer.from(provided);
   const b = Buffer.from(secret);
 

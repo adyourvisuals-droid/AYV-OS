@@ -43,5 +43,9 @@ export async function GET() {
       JWT_REFRESH_SECRET: Boolean(process.env.JWT_REFRESH_SECRET),
       BOOTSTRAP_SECRET: Boolean(process.env.BOOTSTRAP_SECRET),
     },
+    // Length only, never the value — lets us confirm a pasted secret matches
+    // what was intended without ever exposing it. Trailing whitespace from a
+    // copy/paste is a common, otherwise invisible cause of "invalid secret".
+    bootstrapSecretLength: process.env.BOOTSTRAP_SECRET?.length ?? null,
   });
 }
