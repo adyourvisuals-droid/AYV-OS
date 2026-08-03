@@ -7,6 +7,7 @@ import type { NextRequest } from 'next/server';
 import { ALL_PERMISSIONS, SYSTEM_ROLES } from '@ayv/types';
 
 import { hashPassword } from '@/lib/server/auth';
+import { resolveDatabaseUrl } from '@/lib/server/env';
 import { errorResponse, successResponse } from '@/lib/server/http';
 import { MIGRATION_CHECKSUM, MIGRATION_NAME, MIGRATION_SQL } from '@/lib/server/migration-sql';
 import { buildMultiRowInsert } from '@/lib/server/pg-batch';
@@ -86,9 +87,22 @@ export async function POST(req: NextRequest) {
     return errorResponse(401, 'UNAUTHENTICATED', 'Invalid or missing bootstrap secret');
   }
 
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = resolveDatabaseUrl();
   if (!databaseUrl) {
-    return errorResponse(500, 'INTERNAL_ERROR', 'DATABASE_URL is not configured');
+    return errorResponse(
+      500,
+      'INTERNAL_ERROR',
+      'No database URL configured. Set DATABASE_URL, PRISMA_DATABASE_URL or POSTGRES_URL.',
+    );
+  }
+
+  if (databaseUrl.startsWith('prisma://') || databaseUrl.startsWith('prisma+postgres://')) {
+    return errorResponse(
+      500,
+      'INTERNAL_ERROR',
+      'The configured database URL is a Prisma Accelerate proxy URL, which the ' +
+        'pg driver cannot use. This route needs a direct postgres:// connection string.',
+    );
   }
 
   // Managed Postgres providers often present a cert chain Node's default

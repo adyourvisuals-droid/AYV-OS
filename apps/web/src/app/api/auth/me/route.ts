@@ -20,7 +20,19 @@ export async function GET(req: NextRequest) {
     return errorResponse(401, 'TOKEN_EXPIRED', 'Invalid or expired token');
   }
 
-  const principal = await loadPrincipal(payload.sub);
+  // Wrapped so a database failure returns JSON rather than an HTML error
+  // page the client can't parse.
+  let principal;
+  try {
+    principal = await loadPrincipal(payload.sub);
+  } catch (error) {
+    return errorResponse(
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Could not load the current user',
+    );
+  }
+
   if (!principal) {
     return errorResponse(401, 'UNAUTHENTICATED', 'Account is no longer active');
   }

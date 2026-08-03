@@ -11,6 +11,14 @@ function clientIp(req: NextRequest): string | null {
   return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
 }
 
+/**
+ * Everything below the body parse runs inside a try/catch so that an
+ * infrastructure failure (unreachable database, missing secret) returns a
+ * JSON error envelope. Without it, the exception escapes to Next.js, which
+ * renders an HTML error page — and the client's `response.json()` then fails
+ * with the unhelpful "The server returned an unreadable response" rather
+ * than the actual cause.
+ */
 export async function POST(req: NextRequest) {
   let body: { email?: unknown; password?: unknown };
   try {
@@ -18,6 +26,19 @@ export async function POST(req: NextRequest) {
   } catch {
     return errorResponse(400, 'VALIDATION_ERROR', 'Invalid request body');
   }
+
+  try {
+    return await handleLogin(req, body);
+  } catch (error) {
+    return errorResponse(
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Login failed unexpectedly',
+    );
+  }
+}
+
+async function handleLogin(req: NextRequest, body: { email?: unknown; password?: unknown }) {
 
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   const password = typeof body.password === 'string' ? body.password : '';

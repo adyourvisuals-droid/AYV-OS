@@ -18,6 +18,29 @@ function requireEnv(name: string): string {
   return value;
 }
 
+/**
+ * The database connection string, under whichever name the host provides it.
+ *
+ * Prisma's Vercel integration provisions `PRISMA_DATABASE_URL` and
+ * `POSTGRES_URL` — not `DATABASE_URL`, which is what prisma/schema.prisma
+ * declares and what local development uses. Reading only `DATABASE_URL`
+ * meant every database call on Vercel failed with "Environment variable not
+ * found", which surfaced to the browser as an unparseable HTML error page.
+ *
+ * Returns undefined rather than throwing so module-level Prisma Client
+ * construction can't break the build; a missing URL then fails at query
+ * time, where it's caught and reported as JSON.
+ */
+export function resolveDatabaseUrl(): string | undefined {
+  return (
+    process.env.DATABASE_URL ||
+    process.env.PRISMA_DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    undefined
+  );
+}
+
 export const authEnv = {
   get accessSecret(): string {
     return requireEnv('JWT_ACCESS_SECRET');

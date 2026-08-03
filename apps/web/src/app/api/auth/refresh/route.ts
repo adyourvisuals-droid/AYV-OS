@@ -44,6 +44,23 @@ export async function POST(req: NextRequest) {
   }
 
   const tokenHash = hashToken(refreshToken);
+
+  try {
+    return await rotate(req, payload, tokenHash);
+  } catch (error) {
+    return errorResponse(
+      500,
+      'INTERNAL_ERROR',
+      error instanceof Error ? error.message : 'Could not refresh the session',
+    );
+  }
+}
+
+async function rotate(
+  req: NextRequest,
+  payload: { sub: string; family: string },
+  tokenHash: string,
+) {
   const stored = await prisma.session.findFirst({ where: { refreshTokenHash: tokenHash } });
 
   if (!stored) {

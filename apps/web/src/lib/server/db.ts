@@ -3,6 +3,8 @@
 // apps/api's independently-generated client of the same package version.
 import { PrismaClient } from '../../../generated/prisma';
 
+import { resolveDatabaseUrl } from './env';
+
 /**
  * Prisma Client singleton.
  *
@@ -17,6 +19,11 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
+    // Explicit, because the deployment host names this variable
+    // PRISMA_DATABASE_URL / POSTGRES_URL rather than the DATABASE_URL that
+    // schema.prisma declares. Undefined falls back to the schema's own
+    // env() lookup, which is correct for local development.
+    datasourceUrl: resolveDatabaseUrl(),
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
 
