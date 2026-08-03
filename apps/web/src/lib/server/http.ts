@@ -15,3 +15,12 @@ export function successResponse<T>(data: T) {
     meta: { timestamp: new Date().toISOString() },
   });
 }
+
+/** Paginated list endpoints: `meta` carries page/limit/total alongside data. */
+export function paginatedResponse<T>(data: T, meta: object) {
+  return NextResponse.json({
+    success: true,
+    data,
+    meta: { timestamp: new Date().toISOString(), ...meta },
+  });
+}

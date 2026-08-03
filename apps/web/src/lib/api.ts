@@ -2,14 +2,16 @@
 
 import type { ApiResponse } from '@ayv/types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
-
 /**
- * Auth lives at same-origin Next.js API routes (see src/app/api/auth), not on
- * the separate NestJS API — that's what lets login work on Vercel without a
- * second deployed backend. Everything else in this file still targets
- * NEXT_PUBLIC_API_URL, since the rest of the API is a separate deployable.
+ * Same-origin by default: every route this client calls (auth, CRM, clients,
+ * projects, tasks, analytics) is a Next.js Route Handler under src/app/api,
+ * backed directly by Prisma — there is no separate NestJS host deployed.
+ * NEXT_PUBLIC_API_URL remains a documented escape hatch for pointing at a
+ * standalone apps/api instance during local development, if you choose to
+ * run one instead of the Next.js routes.
  */
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api';
+
 const AUTH_URL = '/api/auth';
 
 const ACCESS_TOKEN_KEY = 'ayv.accessToken';
