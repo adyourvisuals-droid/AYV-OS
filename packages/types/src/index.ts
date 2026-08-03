@@ -10,3 +10,4 @@ export * from './enums';
 export * from './api';
 export * from './permissions';
 export * from './entities';
+export * from './role-definitions';

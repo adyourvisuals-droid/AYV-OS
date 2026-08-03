@@ -10,10 +10,9 @@
 import { PrismaClient, type Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 
-import { ALL_PERMISSIONS } from '@ayv/types';
+import { ALL_PERMISSIONS, SYSTEM_ROLES } from '@ayv/types';
 
 import { scoreLead } from '../src/modules/crm/lead-scoring';
-import { SYSTEM_ROLES } from '../src/modules/rbac/role-definitions';
 
 const prisma = new PrismaClient();
 

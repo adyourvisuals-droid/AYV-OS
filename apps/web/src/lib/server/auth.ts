@@ -39,6 +39,11 @@ export async function verifyPassword(hash: string, password: string): Promise<bo
   }
 }
 
+/** Used only by the one-time /api/admin/bootstrap route to create demo users. */
+export async function hashPassword(password: string): Promise<string> {
+  return hashArgon2(password);
+}
+
 let dummyHashPromise: Promise<string> | null = null;
 
 /**

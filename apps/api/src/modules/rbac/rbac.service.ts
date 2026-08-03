@@ -1,10 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
-import { ALL_PERMISSIONS, type Permission } from '@ayv/types';
+import { ALL_PERMISSIONS, PERMISSION_DESCRIPTIONS, SYSTEM_ROLES, type Permission } from '@ayv/types';
 import { RequestContextStore } from '@/common/context/request-context';
 import { PRISMA, type PrismaService } from '@/infra/prisma/prisma.module';
-
-import { PERMISSION_DESCRIPTIONS, SYSTEM_ROLES } from './role-definitions';
 
 @Injectable()
 export class RbacService {

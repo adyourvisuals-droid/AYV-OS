@@ -1,4 +1,5 @@
-import { PERMISSIONS, type Permission, type PermissionScope } from '@ayv/types';
+import type { PermissionScope } from './enums';
+import { PERMISSIONS, type Permission } from './permissions';
 
 const P = PERMISSIONS;
 
@@ -27,6 +28,10 @@ const own = (...permissions: Permission[]) =>
  * These roles are created with `isSystem: true` and cannot be edited or
  * deleted — an organisation clones them to build custom roles instead. That
  * removes any path to accidentally locking every administrator out.
+ *
+ * Lives in @ayv/types (rather than apps/api) so both the NestJS API and the
+ * Next.js app's own admin/bootstrap routes can provision the same roles
+ * without duplicating this matrix.
  */
 export const SYSTEM_ROLES: RoleDefinition[] = [
   {
