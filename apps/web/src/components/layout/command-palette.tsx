@@ -4,17 +4,27 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
+  BarChart3,
   Building2,
+  CheckSquare,
   FolderKanban,
+  Gauge,
+  HeartPulse,
   LayoutDashboard,
+  Palette,
   Plus,
+  Receipt,
   Search,
+  Settings as SettingsIcon,
   Sparkles,
   Target,
+  Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
+import { PERMISSIONS } from '@ayv/types';
 import { Kbd } from '@/components/ui';
+import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 
 interface Command {
@@ -24,18 +34,31 @@ interface Command {
   group: 'Navigate' | 'Create' | 'Ask AI';
   icon: LucideIcon;
   shortcut?: string;
+  /** Hidden unless the principal holds at least one of these — mirrors the sidebar's gating. */
+  permissions?: string[];
   run: (router: ReturnType<typeof useRouter>) => void;
 }
 
 const COMMANDS: Command[] = [
   { id: 'nav-dashboard', label: 'Go to Dashboard', group: 'Navigate', icon: LayoutDashboard, shortcut: '⌘⇧D', run: (r) => r.push('/dashboard') },
-  { id: 'nav-pipeline', label: 'Go to Pipeline', group: 'Navigate', icon: Target, run: (r) => r.push('/crm/pipeline') },
-  { id: 'nav-projects', label: 'Go to Projects', group: 'Navigate', icon: FolderKanban, run: (r) => r.push('/projects') },
-  { id: 'nav-clients', label: 'Go to Clients', group: 'Navigate', icon: Building2, run: (r) => r.push('/clients') },
-  { id: 'new-lead', label: 'New lead', hint: 'Capture an enquiry', group: 'Create', icon: Plus, shortcut: '⌘⇧L', run: (r) => r.push('/crm/leads?new=1') },
-  { id: 'new-project', label: 'New project', group: 'Create', icon: Plus, run: (r) => r.push('/projects?new=1') },
-  { id: 'ai-risk', label: 'Which clients are at risk?', group: 'Ask AI', icon: Sparkles, run: (r) => r.push('/clients/health') },
-  { id: 'ai-forecast', label: 'What is my weighted forecast?', group: 'Ask AI', icon: Sparkles, run: (r) => r.push('/dashboard') },
+  { id: 'nav-pipeline', label: 'Go to Pipeline', group: 'Navigate', icon: Target, permissions: [PERMISSIONS.LEAD_READ], run: (r) => r.push('/crm/pipeline') },
+  { id: 'nav-leads', label: 'Go to Leads', group: 'Navigate', icon: Gauge, permissions: [PERMISSIONS.LEAD_READ], run: (r) => r.push('/crm/leads') },
+  { id: 'nav-projects', label: 'Go to Projects', group: 'Navigate', icon: FolderKanban, permissions: [PERMISSIONS.PROJECT_READ], run: (r) => r.push('/projects') },
+  { id: 'nav-tasks', label: 'Go to My tasks', group: 'Navigate', icon: CheckSquare, permissions: [PERMISSIONS.TASK_READ], run: (r) => r.push('/tasks') },
+  { id: 'nav-creative', label: 'Go to Creative Production', group: 'Navigate', icon: Palette, permissions: [PERMISSIONS.CREATIVE_READ], run: (r) => r.push('/creative') },
+  { id: 'nav-clients', label: 'Go to Clients', group: 'Navigate', icon: Building2, permissions: [PERMISSIONS.CLIENT_READ], run: (r) => r.push('/clients') },
+  { id: 'nav-client-health', label: 'Go to Client health', group: 'Navigate', icon: HeartPulse, permissions: [PERMISSIONS.CLIENT_HEALTH_READ], run: (r) => r.push('/clients/health') },
+  { id: 'nav-finance', label: 'Go to Finance', group: 'Navigate', icon: Receipt, permissions: [PERMISSIONS.INVOICE_READ], run: (r) => r.push('/finance') },
+  { id: 'nav-people', label: 'Go to People', group: 'Navigate', icon: Users, permissions: [PERMISSIONS.EMPLOYEE_READ], run: (r) => r.push('/people') },
+  { id: 'nav-analytics', label: 'Go to Analytics', group: 'Navigate', icon: BarChart3, permissions: [PERMISSIONS.REPORT_READ], run: (r) => r.push('/analytics') },
+  { id: 'nav-ai', label: 'Go to AI Center', group: 'Navigate', icon: Sparkles, permissions: [PERMISSIONS.AI_USE], run: (r) => r.push('/ai') },
+  { id: 'nav-settings', label: 'Go to Settings', group: 'Navigate', icon: SettingsIcon, run: (r) => r.push('/settings') },
+  { id: 'new-lead', label: 'New lead', hint: 'Capture an enquiry', group: 'Create', icon: Plus, shortcut: '⌘⇧L', permissions: [PERMISSIONS.LEAD_CREATE], run: (r) => r.push('/crm/leads?new=1') },
+  { id: 'new-project', label: 'New project', group: 'Create', icon: Plus, permissions: [PERMISSIONS.PROJECT_CREATE], run: (r) => r.push('/projects?new=1') },
+  { id: 'new-brief', label: 'New creative brief', group: 'Create', icon: Plus, permissions: [PERMISSIONS.CREATIVE_CREATE], run: (r) => r.push('/creative?new=1') },
+  { id: 'new-invoice', label: 'New invoice', group: 'Create', icon: Plus, permissions: [PERMISSIONS.INVOICE_CREATE], run: (r) => r.push('/finance?new=1') },
+  { id: 'ai-risk', label: 'Which clients are at risk?', group: 'Ask AI', icon: Sparkles, permissions: [PERMISSIONS.CLIENT_HEALTH_READ], run: (r) => r.push('/clients/health') },
+  { id: 'ai-forecast', label: 'What is my weighted forecast?', group: 'Ask AI', icon: Sparkles, permissions: [PERMISSIONS.DASHBOARD_EXECUTIVE], run: (r) => r.push('/dashboard') },
 ];
 
 /**
@@ -49,15 +72,22 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
+  const { canAny } = useAuth();
+
+  const visibleCommands = useMemo(
+    () => COMMANDS.filter((command) => !command.permissions || canAny(...command.permissions)),
+    [canAny],
+  );
+
   const results = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return COMMANDS;
-    return COMMANDS.filter(
+    if (!needle) return visibleCommands;
+    return visibleCommands.filter(
       (command) =>
         command.label.toLowerCase().includes(needle) ||
         command.group.toLowerCase().includes(needle),
     );
-  }, [query]);
+  }, [query, visibleCommands]);
 
   useEffect(() => {
     if (open) {

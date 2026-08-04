@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Plus, Receipt, XCircle } from 'lucide-react';
 
@@ -93,6 +94,7 @@ const EXPENSE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' 
 
 export default function FinancePage() {
   const { can } = useAuth();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<'invoices' | 'expenses' | 'vendors'>('invoices');
 
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -138,6 +140,10 @@ export default function FinancePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1' && canManageInvoices) setShowNewInvoice(true);
+  }, [searchParams, canManageInvoices]);
 
   const approveExpense = async (id: string, approved: boolean) => {
     try {

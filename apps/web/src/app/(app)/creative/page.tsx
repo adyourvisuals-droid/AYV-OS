@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 
@@ -57,6 +58,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 export default function CreativePage() {
   const { can } = useAuth();
+  const searchParams = useSearchParams();
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,6 +88,10 @@ export default function CreativePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1' && canCreate) setShowNewBrief(true);
+  }, [searchParams, canCreate]);
 
   const moveBrief = async (brief: Brief, toStatus: string) => {
     if (brief.status === toStatus) return;
