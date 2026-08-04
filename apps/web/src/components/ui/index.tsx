@@ -1,12 +1,15 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import {
   forwardRef,
+  useEffect,
   type ButtonHTMLAttributes,
   type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
 } from 'react';
 
 import { cn, initialsOf } from '@/lib/utils';
@@ -298,5 +301,149 @@ export function Kbd({ children }: { children: ReactNode }) {
     <kbd className="inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-subtle bg-sunken px-1.5 font-sans text-[10px] font-medium text-tertiary">
       {children}
     </kbd>
+  );
+}
+
+// ─── Select / Textarea ──────────────────────────────────────────────────────
+
+export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
+  function Select({ className, children, ...props }, ref) {
+    return (
+      <select
+        ref={ref}
+        className={cn(
+          'h-9 w-full rounded-md border border-subtle bg-surface px-3',
+          'text-body-md text-primary',
+          'transition-colors duration-150',
+          'focus:border-brand-500 focus:outline-none',
+          'disabled:opacity-50',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </select>
+    );
+  },
+);
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea({ className, ...props }, ref) {
+    return (
+      <textarea
+        ref={ref}
+        className={cn(
+          'w-full rounded-md border border-subtle bg-surface px-3 py-2',
+          'text-body-md text-primary placeholder:text-tertiary',
+          'transition-colors duration-150',
+          'focus:border-brand-500 focus:outline-none',
+          'disabled:opacity-50',
+          className,
+        )}
+        {...props}
+      />
+    );
+  },
+);
+
+export function Field({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <label className={cn('block', className)}>
+      <span className="mb-1 block text-caption font-medium text-secondary">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+// ─── Modal ───────────────────────────────────────────────────────────────────
+
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  className,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
+      <Card
+        className={cn('relative max-h-[90vh] w-full max-w-lg overflow-y-auto', className)}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className="flex items-center justify-between border-b border-subtle px-5 py-4">
+          <h2 className="text-heading-sm text-primary">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 text-tertiary transition-colors hover:bg-sunken hover:text-primary"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────────────────
+
+export function Tabs({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { key: string; label: string }[];
+  active: string;
+  onChange: (key: string) => void;
+}) {
+  return (
+    <div className="flex gap-1 border-b border-subtle px-6">
+      {tabs.map((tab) => (
+        <button
+          key={tab.key}
+          type="button"
+          onClick={() => onChange(tab.key)}
+          className={cn(
+            'relative px-3 py-2.5 text-body-sm font-medium transition-colors',
+            active === tab.key ? 'text-brand-600' : 'text-secondary hover:text-primary',
+          )}
+        >
+          {tab.label}
+          {active === tab.key && (
+            <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-brand-500" />
+          )}
+        </button>
+      ))}
+    </div>
   );
 }

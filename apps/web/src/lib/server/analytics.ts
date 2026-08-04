@@ -101,7 +101,7 @@ export async function executiveDashboard(period: DashboardPeriod = 'month') {
 
 // ─── Building blocks ─────────────────────────────────────────────────────
 
-async function sumInvoiceTotals(from: Date, to: Date): Promise<number> {
+export async function sumInvoiceTotals(from: Date, to: Date): Promise<number> {
   const result = await prisma.invoice.aggregate({
     where: { issueDate: { gte: from, lte: to }, status: { notIn: ['DRAFT', 'CANCELLED'] } },
     _sum: { total: true },
@@ -109,7 +109,7 @@ async function sumInvoiceTotals(from: Date, to: Date): Promise<number> {
   return Number(result._sum.total ?? 0);
 }
 
-async function sumExpenses(from: Date, to: Date): Promise<number> {
+export async function sumExpenses(from: Date, to: Date): Promise<number> {
   const result = await prisma.expense.aggregate({
     where: { incurredAt: { gte: from, lte: to }, status: { in: ['APPROVED', 'REIMBURSED'] } },
     _sum: { amount: true },
@@ -147,7 +147,7 @@ async function pipelineSummary() {
   };
 }
 
-async function receivablesSummary() {
+export async function receivablesSummary() {
   const [outstanding, overdue, collected] = await Promise.all([
     prisma.invoice.aggregate({
       where: { status: { in: ['SENT', 'VIEWED', 'PARTIAL', 'OVERDUE'] } },
