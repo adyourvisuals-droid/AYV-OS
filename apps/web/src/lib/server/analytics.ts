@@ -43,6 +43,8 @@ export async function executiveDashboard(period: DashboardPeriod = 'month') {
     tasksDueToday,
     renewals,
     revenueTrend,
+    monthlyBurn,
+    counts,
   ] = await Promise.all([
     sumInvoiceTotals(range.from, range.to),
     sumInvoiceTotals(range.previousFrom, range.previousTo),
@@ -56,13 +58,17 @@ export async function executiveDashboard(period: DashboardPeriod = 'month') {
     tasksDueTodayCount(),
     upcomingRenewals(),
     revenueTrendSeries(12),
+    // These two used to run sequentially after this Promise.all — three more
+    // serial round trips on top of an already slow request. Nothing here
+    // depends on the results above, so they belong in the same wave.
+    averageMonthlyExpenses(3),
+    alertCounts(),
   ]);
 
   const profit = revenue - expenses;
   const margin = revenue > 0 ? Number(((profit / revenue) * 100).toFixed(1)) : 0;
-  const monthlyBurn = await averageMonthlyExpenses(3);
 
-  const alerts = await buildAlerts({ receivables, clientHealth });
+  const alerts = buildAlerts({ receivables, clientHealth, ...counts });
 
   return {
     period: {
@@ -124,16 +130,17 @@ async function averageMonthlyExpenses(months: number): Promise<number> {
 }
 
 async function pipelineSummary() {
-  const result = await prisma.lead.aggregate({
-    where: { status: { notIn: [LeadStatus.WON, LeadStatus.LOST] } },
-    _sum: { estimatedValue: true },
-    _count: { _all: true },
-  });
-
-  const openLeads = await prisma.lead.findMany({
-    where: { status: { notIn: [LeadStatus.WON, LeadStatus.LOST] } },
-    select: { estimatedValue: true, closeProbability: true },
-  });
+  const [result, openLeads] = await Promise.all([
+    prisma.lead.aggregate({
+      where: { status: { notIn: [LeadStatus.WON, LeadStatus.LOST] } },
+      _sum: { estimatedValue: true },
+      _count: { _all: true },
+    }),
+    prisma.lead.findMany({
+      where: { status: { notIn: [LeadStatus.WON, LeadStatus.LOST] } },
+      select: { estimatedValue: true, closeProbability: true },
+    }),
+  ]);
 
   const forecast = openLeads.reduce(
     (sum, lead) => sum + Number(lead.estimatedValue) * Number(lead.closeProbability ?? 0.15),
@@ -282,26 +289,73 @@ async function upcomingRenewals() {
   }));
 }
 
+/**
+ * Twelve months of invoiced revenue in a single query.
+ *
+ * This used to run one aggregate per month inside an awaited loop — twelve
+ * sequential round trips to a remote database, which dominated the whole
+ * dashboard's response time. The window is small enough to sum in memory,
+ * so it's one read and a bucket-by-month instead.
+ */
 async function revenueTrendSeries(months: number) {
-  const points: { label: string; value: number }[] = [];
+  const buckets = Array.from({ length: months }, (_, index) => {
+    const monthStart = startOfMonth(subMonths(new Date(), months - 1 - index));
+    return { monthStart, label: format(monthStart, 'MMM'), value: 0 };
+  });
 
-  for (let offset = months - 1; offset >= 0; offset -= 1) {
-    const monthStart = startOfMonth(subMonths(new Date(), offset));
-    const monthEnd = endOfMonth(monthStart);
-    points.push({
-      label: format(monthStart, 'MMM'),
-      value: await sumInvoiceTotals(monthStart, monthEnd),
-    });
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      issueDate: {
+        gte: buckets[0].monthStart,
+        lte: endOfMonth(buckets[buckets.length - 1].monthStart),
+      },
+      status: { notIn: ['DRAFT', 'CANCELLED'] },
+    },
+    select: { issueDate: true, total: true },
+  });
+
+  // Same month key the buckets were built from, so an invoice always lands
+  // in exactly one of them (or none, if it falls outside the window).
+  const indexByMonth = new Map(
+    buckets.map((bucket, index) => [format(bucket.monthStart, 'yyyy-MM'), index]),
+  );
+
+  for (const invoice of invoices) {
+    const index = indexByMonth.get(format(invoice.issueDate, 'yyyy-MM'));
+    if (index !== undefined) buckets[index].value += Number(invoice.total);
   }
 
-  return points;
+  return buckets.map(({ label, value }) => ({ label, value }));
 }
 
 // ─── Alerts and insights ─────────────────────────────────────────────────
 
-async function buildAlerts(context: {
+/** The two counts buildAlerts needs, fetched concurrently rather than in sequence. */
+async function alertCounts() {
+  const [overdueProjects, staleLeads] = await Promise.all([
+    prisma.project.count({
+      where: { dueDate: { lt: new Date() }, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+    }),
+    prisma.lead.count({
+      where: {
+        status: { notIn: [LeadStatus.WON, LeadStatus.LOST] },
+        OR: [
+          { lastActivityAt: { lt: subDays(new Date(), 14) } },
+          { lastActivityAt: null, createdAt: { lt: subDays(new Date(), 14) } },
+        ],
+      },
+    }),
+  ]);
+
+  return { overdueProjects, staleLeads };
+}
+
+/** Pure formatting — every count it needs is resolved by the caller. */
+function buildAlerts(context: {
   receivables: { overdue: number; overdueCount: number };
   clientHealth: { critical: number; atRisk: number };
+  overdueProjects: number;
+  staleLeads: number;
 }) {
   const alerts: { id: string; severity: AlertSeverity; type: string; message: string }[] = [];
 
@@ -330,35 +384,21 @@ async function buildAlerts(context: {
     });
   }
 
-  const overdueProjects = await prisma.project.count({
-    where: { dueDate: { lt: new Date() }, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
-  });
-
-  if (overdueProjects > 0) {
+  if (context.overdueProjects > 0) {
     alerts.push({
       id: 'projects-overdue',
       severity: 'HIGH',
       type: 'DELIVERY',
-      message: `${overdueProjects} project(s) past their due date`,
+      message: `${context.overdueProjects} project(s) past their due date`,
     });
   }
 
-  const staleLeads = await prisma.lead.count({
-    where: {
-      status: { notIn: [LeadStatus.WON, LeadStatus.LOST] },
-      OR: [
-        { lastActivityAt: { lt: subDays(new Date(), 14) } },
-        { lastActivityAt: null, createdAt: { lt: subDays(new Date(), 14) } },
-      ],
-    },
-  });
-
-  if (staleLeads > 0) {
+  if (context.staleLeads > 0) {
     alerts.push({
       id: 'leads-stale',
       severity: 'MEDIUM',
       type: 'PIPELINE',
-      message: `${staleLeads} lead(s) with no contact in 14 days`,
+      message: `${context.staleLeads} lead(s) with no contact in 14 days`,
     });
   }
 

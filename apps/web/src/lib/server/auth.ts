@@ -184,7 +184,42 @@ export async function revokeSessionFamily(familyId: string): Promise<void> {
 // principal computed here has exactly the same shape and semantics as one
 // computed by the NestJS API, whenever that comes back online.
 
+/**
+ * Short-lived principal cache.
+ *
+ * Every authenticated request has to resolve its caller's effective
+ * permission set, and doing that from scratch costs several round trips to
+ * a remote database (user → role → role permissions → permission rows, plus
+ * per-user overrides) — well over a second, paid before the route handler
+ * even starts. Since a warm serverless instance serves many requests, memoising
+ * the result for a few seconds removes that cost from nearly all of them.
+ *
+ * The TTL is deliberately short because this is authorisation state: a role
+ * edit, a permission revocation, or a deactivated account must take effect
+ * quickly. PRINCIPAL_CACHE_TTL_MS is the worst-case staleness window, and
+ * invalidatePrincipals() clears it immediately on the instance that made a
+ * change so the common case is not stale at all.
+ */
+const PRINCIPAL_CACHE_TTL_MS = 10_000;
+
+const principalCache = new Map<string, { principal: AuthPrincipal; expiresAt: number }>();
+
+/**
+ * Drops cached principals so the next request recomputes them. Call after
+ * anything that changes what a user is allowed to do.
+ *
+ * Note this only clears the current instance's cache — other warm instances
+ * still expire on their own TTL, so PRINCIPAL_CACHE_TTL_MS remains the real
+ * upper bound on how long a permission change can take to apply everywhere.
+ */
+export function invalidatePrincipals(): void {
+  principalCache.clear();
+}
+
 export async function loadPrincipal(userId: string): Promise<AuthPrincipal | null> {
+  const cached = principalCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.principal;
+
   const user = await prisma.user.findFirst({
     where: { id: userId, deletedAt: null, status: 'ACTIVE' },
     include: {
@@ -193,7 +228,12 @@ export async function loadPrincipal(userId: string): Promise<AuthPrincipal | nul
     },
   });
 
-  if (!user) return null;
+  if (!user) {
+    // Negative results are not cached: a deactivated or deleted account must
+    // stop authenticating immediately, not after the TTL.
+    principalCache.delete(userId);
+    return null;
+  }
 
   const scopes: Record<string, 'ALL' | 'TEAM' | 'OWN'> = {};
   const granted = new Set<string>();
@@ -213,7 +253,7 @@ export async function loadPrincipal(userId: string): Promise<AuthPrincipal | nul
     }
   }
 
-  return {
+  const principal: AuthPrincipal = {
     userId: user.id,
     organizationId: user.organizationId,
     email: user.email,
@@ -226,4 +266,8 @@ export async function loadPrincipal(userId: string): Promise<AuthPrincipal | nul
     permissions: [...granted] as Permission[],
     permissionScopes: scopes,
   };
+
+  principalCache.set(userId, { principal, expiresAt: Date.now() + PRINCIPAL_CACHE_TTL_MS });
+
+  return principal;
 }

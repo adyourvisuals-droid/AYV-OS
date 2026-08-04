@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 
 import { ALL_PERMISSIONS, PERMISSIONS, type Permission } from '@ayv/types';
 
+import { invalidatePrincipals } from '@/lib/server/auth';
 import { prisma } from '@/lib/server/db';
 import { errorResponse, successResponse } from '@/lib/server/http';
 import { presentRole, ROLE_INCLUDE } from '@/lib/server/roles-present';
@@ -115,6 +116,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     });
 
+    // This just changed what everyone holding this role is allowed to do.
+    invalidatePrincipals();
+
     const updated = await prisma.role.findFirstOrThrow({
       where: { id },
       include: { ...ROLE_INCLUDE, permissions: { include: { permission: true } } },
@@ -152,6 +156,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       prisma.rolePermission.deleteMany({ where: { roleId: id } }),
       prisma.role.delete({ where: { id } }),
     ]);
+
+    invalidatePrincipals();
 
     return successResponse({ success: true });
   });
