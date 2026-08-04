@@ -34,7 +34,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
 //  ENUMS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -570,6 +569,32 @@ model Session {
   @@index([refreshTokenHash])
 }
 
+/// Defines a custom field on one of the fixed entity types below. The value
+/// itself lives in that entity's own `customFields` Json column, keyed by
+/// `key` — this table is schema metadata, not data.
+model CustomFieldDefinition {
+  id             String @id @default(cuid())
+  organizationId String
+
+  /// 'Lead' · 'Client' · 'Project' · 'Task'
+  entityType String
+  /// Stable machine key used inside the target row's customFields Json.
+  key        String
+  label      String
+  /// 'TEXT' · 'NUMBER' · 'DATE' · 'BOOLEAN' · 'SELECT'
+  fieldType  String
+  /// Only meaningful when fieldType is 'SELECT'.
+  options    String[]
+  required   Boolean  @default(false)
+  position   Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, entityType, key])
+  @@index([organizationId, entityType])
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  CRM
 // ═══════════════════════════════════════════════════════════════════════════
@@ -603,6 +628,9 @@ model Lead {
   notes      String?
   lostReason String?
   winReason  String?
+
+  /// Values keyed by CustomFieldDefinition.key for entityType 'Lead'.
+  customFields Json @default("{}")
 
   ownerId String?
 
@@ -813,6 +841,9 @@ model Client {
   /// Never exposed to the CLIENT role.
   internalNotes String?
 
+  /// Values keyed by CustomFieldDefinition.key for entityType 'Client'.
+  customFields Json @default("{}")
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -940,6 +971,9 @@ model Project {
   internalCost Decimal? @db.Decimal(14, 2)
   currency     String   @default("INR")
 
+  /// Values keyed by CustomFieldDefinition.key for entityType 'Project'.
+  customFields Json @default("{}")
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -1024,6 +1058,9 @@ model Task {
   labels        String[]
   /// When true the task appears in the client portal.
   clientVisible Boolean  @default(false)
+
+  /// Values keyed by CustomFieldDefinition.key for entityType 'Task'.
+  customFields Json @default("{}")
 
   isAiGenerated Boolean @default(false)
 

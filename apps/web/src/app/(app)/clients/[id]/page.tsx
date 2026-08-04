@@ -5,19 +5,25 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 
+import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
 import {
   Avatar,
   Badge,
+  Button,
   Card,
   CardBody,
   CardHeader,
   CardTitle,
   ErrorState,
+  Field,
+  Input,
   Progress,
+  Select,
   Skeleton,
 } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { formatCurrency, formatDate, healthBand, titleCase } from '@/lib/utils';
 
 interface Client {
@@ -36,6 +42,17 @@ interface Client {
   accountManager: { id: string; name: string; avatarUrl: string | null } | null;
   contacts: { id: string; name: string; email: string | null; designation: string | null; isPrimary: boolean }[];
   counts: { projects: number; invoices: number; tickets: number };
+  customFields: Record<string, unknown>;
+}
+
+interface CustomFieldDefinition {
+  id: string;
+  key: string;
+  label: string;
+  fieldType: string;
+  options: string[];
+  required: boolean;
+  position: number;
 }
 
 interface HealthResult {
@@ -47,11 +64,15 @@ interface HealthResult {
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
   const clientId = params.id;
+  const { canAny } = useAuth();
 
   const [client, setClient] = useState<Client | null>(null);
   const [health, setHealth] = useState<HealthResult | null>(null);
+  const [fieldDefs, setFieldDefs] = useState<CustomFieldDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const canSeeCustomFields = canAny(PERMISSIONS.SETTING_READ, PERMISSIONS.CUSTOM_FIELD_MANAGE);
 
   const load = useCallback(async () => {
     setError(null);
@@ -66,12 +87,22 @@ export default function ClientDetailPage() {
       } catch {
         setHealth(null);
       }
+
+      // Not every viewer can see the custom-field registry; a 403 here
+      // just means the section doesn't render, not a page failure.
+      if (canSeeCustomFields) {
+        try {
+          setFieldDefs(await api.get<CustomFieldDefinition[]>('/settings/custom-fields?entityType=CLIENT'));
+        } catch {
+          setFieldDefs([]);
+        }
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the client');
     } finally {
       setLoading(false);
     }
-  }, [clientId]);
+  }, [clientId, canSeeCustomFields]);
 
   useEffect(() => {
     void load();
@@ -253,8 +284,133 @@ export default function ClientDetailPage() {
               </CardBody>
             </Card>
           )}
+
+          {fieldDefs.length > 0 && (
+            <CustomFieldsCard
+              clientId={client.id}
+              definitions={fieldDefs}
+              values={client.customFields}
+              canEdit={canAny(PERMISSIONS.CLIENT_UPDATE)}
+              onSaved={(updated) => setClient((prev) => (prev ? { ...prev, customFields: updated } : prev))}
+            />
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+function CustomFieldsCard({
+  clientId,
+  definitions,
+  values,
+  canEdit,
+  onSaved,
+}: {
+  clientId: string;
+  definitions: CustomFieldDefinition[];
+  values: Record<string, unknown>;
+  canEdit: boolean;
+  onSaved: (values: Record<string, unknown>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Record<string, unknown>>(values);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setDraft(values);
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await api.patch<Client>(`/clients/${clientId}`, { customFields: draft });
+      onSaved(updated.customFields);
+      setEditing(false);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not save custom fields');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex items-center justify-between">
+        <CardTitle>Custom fields</CardTitle>
+        {canEdit && !editing && (
+          <Button size="sm" variant="secondary" onClick={startEdit}>
+            Edit
+          </Button>
+        )}
+      </CardHeader>
+      <CardBody className="space-y-3">
+        {definitions
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .map((definition) => {
+            const value = editing ? draft[definition.key] : values[definition.key];
+            if (!editing) {
+              return (
+                <div key={definition.id} className="flex items-center justify-between gap-3">
+                  <span className="text-body-sm text-secondary">{definition.label}</span>
+                  <span className="text-body-sm font-medium text-primary">
+                    {value === undefined || value === null || value === '' ? '—' : String(value)}
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <Field key={definition.id} label={definition.label + (definition.required ? ' *' : '')}>
+                {definition.fieldType === 'BOOLEAN' ? (
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(value)}
+                      onChange={(event) => setDraft((prev) => ({ ...prev, [definition.key]: event.target.checked }))}
+                      className="h-4 w-4 rounded border-subtle accent-brand-500"
+                    />
+                  </label>
+                ) : definition.fieldType === 'SELECT' ? (
+                  <Select
+                    value={String(value ?? '')}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, [definition.key]: event.target.value }))}
+                  >
+                    <option value="">—</option>
+                    {definition.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    type={definition.fieldType === 'NUMBER' ? 'number' : definition.fieldType === 'DATE' ? 'date' : 'text'}
+                    value={String(value ?? '')}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, [definition.key]: event.target.value }))}
+                  />
+                )}
+              </Field>
+            );
+          })}
+
+        {error && <p className="text-body-sm text-danger">{error}</p>}
+
+        {editing && (
+          <div className="flex justify-end gap-2 border-t border-subtle pt-3">
+            <Button variant="secondary" size="sm" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => void save()} loading={saving}>
+              Save
+            </Button>
+          </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }

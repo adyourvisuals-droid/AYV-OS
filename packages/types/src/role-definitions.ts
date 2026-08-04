@@ -524,4 +524,5 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   [P.PNL_READ]: 'View profit and loss',
   [P.DASHBOARD_EXECUTIVE]: 'View the executive dashboard',
   [P.AI_CONFIGURE]: 'Configure AI agents and their autonomy',
+  [P.CUSTOM_FIELD_MANAGE]: 'Create and manage custom fields on records',
 };

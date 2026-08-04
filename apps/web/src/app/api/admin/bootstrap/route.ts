@@ -10,7 +10,8 @@ import { hashPassword } from '@/lib/server/auth';
 import { resolveDatabaseUrl } from '@/lib/server/env';
 import { errorResponse, successResponse } from '@/lib/server/http';
 import { scoreLead } from '@/lib/server/lead-scoring';
-import { MIGRATION_CHECKSUM, MIGRATION_NAME, MIGRATION_SQL } from '@/lib/server/migration-sql';
+import * as initMigration from '@/lib/server/migration-sql';
+import * as customFieldsMigration from '@/lib/server/migration-custom-fields';
 import { buildMultiRowInsert } from '@/lib/server/pg-batch';
 
 export const runtime = 'nodejs';
@@ -189,6 +190,22 @@ const MONTHLY_COSTS: { title: string; category: string; amount: number; day: num
   { title: 'Marketing and travel', category: 'Operations', amount: 24_000, day: -16 },
 ];
 
+/**
+ * Every migration this route knows how to apply, in order. Adding a new
+ * embedded migration file (see migration-sql.ts's header for the pattern)
+ * and appending it here is the whole process for shipping a schema change
+ * to production from this sandbox, which cannot open a raw connection to
+ * Postgres directly.
+ */
+const MIGRATIONS = [
+  { name: initMigration.MIGRATION_NAME, checksum: initMigration.MIGRATION_CHECKSUM, sql: initMigration.MIGRATION_SQL },
+  {
+    name: customFieldsMigration.MIGRATION_NAME,
+    checksum: customFieldsMigration.MIGRATION_CHECKSUM,
+    sql: customFieldsMigration.MIGRATION_SQL,
+  },
+];
+
 function authorised(req: NextRequest): boolean {
   // .trim(): a trailing newline from copy/pasting the secret into Vercel's
   // env var UI is a common, invisible cause of an otherwise-correct secret
@@ -262,53 +279,49 @@ export async function POST(req: NextRequest) {
     await client.query('SELECT 1');
     steps.push('connectivity: ok');
 
-    // ─── Migration ─────────────────────────────────────────────────────────
+    // ─── Migrations ────────────────────────────────────────────────────────
 
-    const bookkeepingExists = await client.query<{ exists: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1 FROM information_schema.tables WHERE table_name = '_prisma_migrations'
-       ) as exists`,
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
+        "id" VARCHAR(36) PRIMARY KEY,
+        "checksum" VARCHAR(64) NOT NULL,
+        "finished_at" TIMESTAMPTZ,
+        "migration_name" VARCHAR(255) NOT NULL,
+        "logs" TEXT,
+        "rolled_back_at" TIMESTAMPTZ,
+        "started_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "applied_steps_count" INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+
+    const appliedRows = await client.query<{ migration_name: string }>(
+      `SELECT migration_name FROM "_prisma_migrations"`,
     );
+    const appliedNames = new Set(appliedRows.rows.map((row) => row.migration_name));
 
-    const hasMigrationRow = bookkeepingExists.rows[0]?.exists
-      ? (
-          await client.query<{ count: number }>(
-            `SELECT count(*)::int as count FROM "_prisma_migrations" WHERE migration_name = $1`,
-            [MIGRATION_NAME],
-          )
-        ).rows[0].count > 0
-      : false;
+    let migrationsApplied = 0;
+    for (const migration of MIGRATIONS) {
+      if (appliedNames.has(migration.name)) continue;
 
-    if (hasMigrationRow) {
-      steps.push('migration: already applied, skipped');
-    } else {
-      // One round trip for the bookkeeping table plus the entire migration —
       // `pg`'s simple query protocol runs an unparameterized multi-statement
-      // string as a single request. The values below are fixed constants
-      // this file defines, not request input, so inlining them is safe.
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
-          "id" VARCHAR(36) PRIMARY KEY,
-          "checksum" VARCHAR(64) NOT NULL,
-          "finished_at" TIMESTAMPTZ,
-          "migration_name" VARCHAR(255) NOT NULL,
-          "logs" TEXT,
-          "rolled_back_at" TIMESTAMPTZ,
-          "started_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
-          "applied_steps_count" INTEGER NOT NULL DEFAULT 0
-        );
-
-        ${MIGRATION_SQL}
-      `);
+      // string as a single request — one round trip per migration, entire
+      // migration atomic. The SQL is a fixed constant this file defines, not
+      // request input, so inlining it is safe.
+      await client.query(migration.sql);
 
       await client.query(
         `INSERT INTO "_prisma_migrations"
            (id, checksum, migration_name, started_at, finished_at, applied_steps_count)
          VALUES ($1, $2, $3, now(), now(), $4)`,
-        [randomUUID(), MIGRATION_CHECKSUM, MIGRATION_NAME, 321],
+        [randomUUID(), migration.checksum, migration.name, migration.sql.split(';').length - 1],
       );
 
-      steps.push('migration: applied');
+      migrationsApplied += 1;
+      steps.push(`migration: applied ${migration.name}`);
+    }
+
+    if (migrationsApplied === 0) {
+      steps.push(`migrations: all ${MIGRATIONS.length} already applied, skipped`);
     }
 
     // ─── Seed: organisation ──────────────────────────────────────────────────
@@ -375,17 +388,26 @@ export async function POST(req: NextRequest) {
     // Self-healing, not just idempotent: an earlier, slower version of this
     // route (hundreds of unbatched round trips) could be killed by Vercel's
     // function execution limit partway through a production run, potentially
-    // leaving a role row created with zero permission grants. Rather than
-    // trusting "the role exists" to mean "the role is fully set up", roles
-    // with no existing grants get their grants filled in regardless.
+    // leaving a role row created with zero permission grants. Beyond that,
+    // the permission registry itself grows over time (e.g. a new module adds
+    // a permission) — a system role that was fully set up under an older
+    // registry is still missing the new grant. So healing is per-permission,
+    // not "does this role have zero grants": every system role's actual
+    // grants are diffed against SYSTEM_ROLES and only the gap is inserted.
+    // Custom (non-system) roles are never touched here.
 
     const existingRoles = await client.query<{ key: string; id: string }>(`SELECT id, key FROM "Role"`);
     const roleIdByKey = new Map(existingRoles.rows.map((row) => [row.key, row.id]));
 
-    const existingGrantCounts = await client.query<{ roleId: string; count: number }>(
-      `SELECT "roleId", count(*)::int as count FROM "RolePermission" GROUP BY "roleId"`,
+    const existingGrants = await client.query<{ roleId: string; permissionKey: string }>(
+      `SELECT rp."roleId", p.key AS "permissionKey" FROM "RolePermission" rp JOIN "Permission" p ON p.id = rp."permissionId"`,
     );
-    const grantCountByRoleId = new Map(existingGrantCounts.rows.map((row) => [row.roleId, row.count]));
+    const grantedKeysByRoleId = new Map<string, Set<string>>();
+    for (const row of existingGrants.rows) {
+      const set = grantedKeysByRoleId.get(row.roleId) ?? new Set<string>();
+      set.add(row.permissionKey);
+      grantedKeysByRoleId.set(row.roleId, set);
+    }
 
     const roleRows: unknown[][] = [];
     const grantRows: unknown[][] = [];
@@ -393,6 +415,8 @@ export async function POST(req: NextRequest) {
 
     for (const definition of SYSTEM_ROLES) {
       let roleId = roleIdByKey.get(definition.key);
+      const existedBefore = Boolean(roleId);
+      const alreadyGranted = roleId ? grantedKeysByRoleId.get(roleId) ?? new Set<string>() : new Set<string>();
 
       if (!roleId) {
         roleId = randomUUID();
@@ -407,11 +431,6 @@ export async function POST(req: NextRequest) {
           definition.level,
           new Date(),
         ]);
-      } else if ((grantCountByRoleId.get(roleId) ?? 0) > 0) {
-        // Role exists and already has grants — genuinely done, skip.
-        continue;
-      } else {
-        rolesHealed += 1;
       }
 
       const grants =
@@ -422,10 +441,16 @@ export async function POST(req: NextRequest) {
       const deduped = new Map<string, 'ALL' | 'TEAM' | 'OWN'>();
       for (const grant of grants) deduped.set(grant.permission, grant.scope ?? 'ALL');
 
+      let missingForRole = 0;
       for (const [permissionKey, scope] of deduped) {
+        if (alreadyGranted.has(permissionKey)) continue;
         const permissionId = permissionIdByKey.get(permissionKey);
-        if (permissionId) grantRows.push([randomUUID(), roleId, permissionId, scope]);
+        if (permissionId) {
+          grantRows.push([randomUUID(), roleId, permissionId, scope]);
+          missingForRole += 1;
+        }
       }
+      if (missingForRole > 0 && existedBefore) rolesHealed += 1;
     }
 
     if (roleRows.length > 0) {

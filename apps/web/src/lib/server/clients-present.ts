@@ -56,6 +56,7 @@ export function presentClient(client: ClientWithManager) {
       : null,
     contractStartDate: client.contractStartDate?.toISOString() ?? null,
     renewalDate: client.renewalDate?.toISOString() ?? null,
+    customFields: client.customFields,
     createdAt: client.createdAt.toISOString(),
   };
 }

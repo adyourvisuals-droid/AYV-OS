@@ -12,6 +12,7 @@ export const PERMISSIONS = {
   ORG_UPDATE: 'org:update',
   SETTING_READ: 'setting:read',
   SETTING_UPDATE: 'setting:update',
+  CUSTOM_FIELD_MANAGE: 'setting:custom_field:manage',
 
   USER_READ: 'user:read',
   USER_CREATE: 'user:create',
