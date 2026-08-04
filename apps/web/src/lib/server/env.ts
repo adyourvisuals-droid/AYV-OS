@@ -32,13 +32,50 @@ function requireEnv(name: string): string {
  * time, where it's caught and reported as JSON.
  */
 export function resolveDatabaseUrl(): string | undefined {
-  return (
+  const url =
     process.env.DATABASE_URL ||
     process.env.PRISMA_DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
-    undefined
-  );
+    undefined;
+
+  return url ? withPoolSettings(url) : undefined;
+}
+
+/**
+ * Widens Prisma's connection pool for serverless.
+ *
+ * Prisma sizes the pool from the host's CPU count — on a 1-vCPU function
+ * that is three connections. Endpoints that issue many independent queries
+ * at once (the executive dashboard fires fourteen) then queue them a few at
+ * a time, which showed up as wildly variable response times: mostly a couple
+ * of seconds, occasionally over twenty when requests overlapped.
+ *
+ * Each warm instance keeps its own pool, so this is deliberately modest
+ * rather than large — enough that a single request's fan-out runs in one
+ * wave, without a burst of instances exhausting the database's connection
+ * limit. Any value already present in the URL wins, so this can be tuned
+ * from the environment without a deploy.
+ */
+function withPoolSettings(url: string): string {
+  // Non-TCP Prisma protocols (prisma://, prisma+postgres://) are pooled by
+  // the remote proxy; these parameters are meaningless and may be rejected.
+  if (!/^postgres(ql)?:\/\//i.test(url)) return url;
+
+  try {
+    const parsed = new URL(url);
+    if (!parsed.searchParams.has('connection_limit')) {
+      parsed.searchParams.set('connection_limit', '10');
+    }
+    if (!parsed.searchParams.has('pool_timeout')) {
+      parsed.searchParams.set('pool_timeout', '15');
+    }
+    return parsed.toString();
+  } catch {
+    // A URL Node can't parse is one we shouldn't rewrite — hand it back
+    // untouched and let Prisma report the problem.
+    return url;
+  }
 }
 
 export const authEnv = {
