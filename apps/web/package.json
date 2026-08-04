@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "pnpm --filter @ayv/types build && node scripts/migrate-deploy.mjs && next build",
+    "build": "pnpm --filter @ayv/types build && node scripts/migrate-deploy.mjs && node scripts/sync-rbac.mjs && next build",
     "start": "next start -p 3000",
     "typecheck": "pnpm --filter @ayv/types build && tsc --noEmit",
     "lint": "next lint --max-warnings 0",
