@@ -16,6 +16,8 @@ const AUTH_URL = '/api/auth';
 
 const ACCESS_TOKEN_KEY = 'ayv.accessToken';
 const REFRESH_TOKEN_KEY = 'ayv.refreshToken';
+/** Written by auth-context to render the shell without waiting on /auth/me. */
+const PROFILE_CACHE_KEY = 'ayv.profile';
 
 export const tokenStore = {
   get access(): string | null {
@@ -33,6 +35,11 @@ export const tokenStore = {
   clear(): void {
     window.localStorage.removeItem(ACCESS_TOKEN_KEY);
     window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+    // The cached profile is only meaningful alongside a live session. Every
+    // path that drops the tokens — logout, a failed refresh, a 401 — must
+    // drop it too, or the shell would render against an identity whose
+    // session has already ended.
+    window.localStorage.removeItem(PROFILE_CACHE_KEY);
   },
 };
 

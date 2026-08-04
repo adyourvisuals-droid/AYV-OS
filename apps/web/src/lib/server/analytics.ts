@@ -11,8 +11,25 @@ import {
 import { LeadStatus, PIPELINE_STAGES, TaskStatus, type AlertSeverity } from '@ayv/types';
 
 import { prisma } from './db';
+import { RequestContextStore } from './request-context';
 
 export type DashboardPeriod = 'week' | 'month' | 'quarter' | 'year';
+
+/**
+ * The active tenant, for the raw-SQL aggregates below.
+ *
+ * Prisma's tenant extension cannot see into `$queryRaw`, so any raw query has
+ * to filter by organisation itself. Throwing on a missing context is
+ * deliberate: the alternative — falling back to an unfiltered query — would
+ * turn a plumbing mistake into a cross-tenant data leak.
+ */
+function requireOrganizationId(): string {
+  const organizationId = RequestContextStore.getOrganizationId();
+  if (!organizationId) {
+    throw new Error('Analytics query ran without a tenant context');
+  }
+  return organizationId;
+}
 
 interface PeriodRange {
   from: Date;
@@ -30,6 +47,10 @@ interface PeriodRange {
 export async function executiveDashboard(period: DashboardPeriod = 'month') {
   const range = resolveRange(period);
 
+  // Everything the dashboard needs, issued at once. Nothing here depends on
+  // anything else here, so the endpoint costs one round trip's latency rather
+  // than the sum of its parts — the alert counts and the burn-rate figure
+  // used to run sequentially after this batch had already resolved.
   const [
     revenue,
     previousRevenue,
@@ -43,6 +64,9 @@ export async function executiveDashboard(period: DashboardPeriod = 'month') {
     tasksDueToday,
     renewals,
     revenueTrend,
+    monthlyBurn,
+    overdueProjects,
+    staleLeads,
   ] = await Promise.all([
     sumInvoiceTotals(range.from, range.to),
     sumInvoiceTotals(range.previousFrom, range.previousTo),
@@ -56,13 +80,15 @@ export async function executiveDashboard(period: DashboardPeriod = 'month') {
     tasksDueTodayCount(),
     upcomingRenewals(),
     revenueTrendSeries(12),
+    averageMonthlyExpenses(3),
+    overdueProjectCount(),
+    staleLeadCount(),
   ]);
 
   const profit = revenue - expenses;
   const margin = revenue > 0 ? Number(((profit / revenue) * 100).toFixed(1)) : 0;
-  const monthlyBurn = await averageMonthlyExpenses(3);
 
-  const alerts = await buildAlerts({ receivables, clientHealth });
+  const alerts = buildAlerts({ receivables, clientHealth, overdueProjects, staleLeads });
 
   return {
     period: {
@@ -123,27 +149,31 @@ async function averageMonthlyExpenses(months: number): Promise<number> {
   return months > 0 ? total / months : 0;
 }
 
+/**
+ * Open pipeline value, deal count, and probability-weighted forecast.
+ *
+ * Previously two sequential queries, the second of which loaded every open
+ * lead into memory purely to multiply two columns together. Postgres does the
+ * weighting in the same pass that computes the totals, so this is one round
+ * trip and its cost no longer grows with the size of the pipeline.
+ */
 async function pipelineSummary() {
-  const result = await prisma.lead.aggregate({
-    where: { status: { notIn: [LeadStatus.WON, LeadStatus.LOST] } },
-    _sum: { estimatedValue: true },
-    _count: { _all: true },
-  });
+  const organizationId = requireOrganizationId();
 
-  const openLeads = await prisma.lead.findMany({
-    where: { status: { notIn: [LeadStatus.WON, LeadStatus.LOST] } },
-    select: { estimatedValue: true, closeProbability: true },
-  });
-
-  const forecast = openLeads.reduce(
-    (sum, lead) => sum + Number(lead.estimatedValue) * Number(lead.closeProbability ?? 0.15),
-    0,
-  );
+  const [row] = await prisma.$queryRaw<{ value: string; deals: bigint; forecast: string }[]>`
+    SELECT COALESCE(SUM("estimatedValue"), 0)                                  AS "value",
+           COUNT(*)                                                            AS "deals",
+           COALESCE(SUM("estimatedValue" * COALESCE("closeProbability", 0.15)), 0) AS "forecast"
+    FROM "Lead"
+    WHERE "organizationId" = ${organizationId}
+      AND "deletedAt" IS NULL
+      AND "status" NOT IN ('WON'::"LeadStatus", 'LOST'::"LeadStatus")
+  `;
 
   return {
-    value: Number(result._sum.estimatedValue ?? 0),
-    deals: result._count._all,
-    forecast: Math.round(forecast),
+    value: Number(row?.value ?? 0),
+    deals: Number(row?.deals ?? 0),
+    forecast: Math.round(Number(row?.forecast ?? 0)),
   };
 }
 
@@ -282,26 +312,83 @@ async function upcomingRenewals() {
   }));
 }
 
+/**
+ * Twelve months of invoiced revenue.
+ *
+ * This was a loop that awaited one aggregate per month — twelve sequential
+ * round trips to render a sparkline, and the single largest contributor to
+ * the dashboard's latency. Postgres can bucket by month itself, so it is one
+ * query regardless of how many months are asked for.
+ *
+ * Raw SQL bypasses the Prisma extensions, which is exactly why the tenant and
+ * soft-delete predicates are written out explicitly here: `organizationId`
+ * comes from the request context the same way the extension would have
+ * supplied it, and a missing context is a hard error rather than a silent
+ * cross-tenant read.
+ */
 async function revenueTrendSeries(months: number) {
-  const points: { label: string; value: number }[] = [];
+  const organizationId = requireOrganizationId();
 
-  for (let offset = months - 1; offset >= 0; offset -= 1) {
-    const monthStart = startOfMonth(subMonths(new Date(), offset));
-    const monthEnd = endOfMonth(monthStart);
-    points.push({
+  const earliest = startOfMonth(subMonths(new Date(), months - 1));
+
+  const rows = await prisma.$queryRaw<{ month: Date; total: string }[]>`
+    SELECT date_trunc('month', "issueDate") AS "month",
+           COALESCE(SUM("total"), 0)        AS "total"
+    FROM "Invoice"
+    WHERE "organizationId" = ${organizationId}
+      AND "deletedAt" IS NULL
+      AND "issueDate" >= ${earliest}
+      AND "status" NOT IN ('DRAFT'::"InvoiceStatus", 'CANCELLED'::"InvoiceStatus")
+    GROUP BY 1
+  `;
+
+  const totalByMonth = new Map(
+    rows.map((row) => [format(row.month, 'yyyy-MM'), Number(row.total)]),
+  );
+
+  // Build every bucket from the calendar rather than from the rows, so months
+  // with no invoices render as zero instead of vanishing from the series.
+  return Array.from({ length: months }, (_, index) => {
+    const monthStart = startOfMonth(subMonths(new Date(), months - 1 - index));
+    return {
       label: format(monthStart, 'MMM'),
-      value: await sumInvoiceTotals(monthStart, monthEnd),
-    });
-  }
-
-  return points;
+      value: totalByMonth.get(format(monthStart, 'yyyy-MM')) ?? 0,
+    };
+  });
 }
 
 // ─── Alerts and insights ─────────────────────────────────────────────────
 
-async function buildAlerts(context: {
+/** Projects past their due date that nobody has closed out. */
+function overdueProjectCount(): Promise<number> {
+  return prisma.project.count({
+    where: { dueDate: { lt: new Date() }, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+  });
+}
+
+/** Open leads with no recorded contact in the last fortnight. */
+function staleLeadCount(): Promise<number> {
+  return prisma.lead.count({
+    where: {
+      status: { notIn: [LeadStatus.WON, LeadStatus.LOST] },
+      OR: [
+        { lastActivityAt: { lt: subDays(new Date(), 14) } },
+        { lastActivityAt: null, createdAt: { lt: subDays(new Date(), 14) } },
+      ],
+    },
+  });
+}
+
+/**
+ * Pure: every count it reasons about is fetched in the dashboard's parallel
+ * batch and handed in. It used to issue two more queries of its own, after
+ * that batch had already resolved.
+ */
+function buildAlerts(context: {
   receivables: { overdue: number; overdueCount: number };
   clientHealth: { critical: number; atRisk: number };
+  overdueProjects: number;
+  staleLeads: number;
 }) {
   const alerts: { id: string; severity: AlertSeverity; type: string; message: string }[] = [];
 
@@ -330,9 +417,7 @@ async function buildAlerts(context: {
     });
   }
 
-  const overdueProjects = await prisma.project.count({
-    where: { dueDate: { lt: new Date() }, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
-  });
+  const { overdueProjects, staleLeads } = context;
 
   if (overdueProjects > 0) {
     alerts.push({
@@ -342,16 +427,6 @@ async function buildAlerts(context: {
       message: `${overdueProjects} project(s) past their due date`,
     });
   }
-
-  const staleLeads = await prisma.lead.count({
-    where: {
-      status: { notIn: [LeadStatus.WON, LeadStatus.LOST] },
-      OR: [
-        { lastActivityAt: { lt: subDays(new Date(), 14) } },
-        { lastActivityAt: null, createdAt: { lt: subDays(new Date(), 14) } },
-      ],
-    },
-  });
 
   if (staleLeads > 0) {
     alerts.push({

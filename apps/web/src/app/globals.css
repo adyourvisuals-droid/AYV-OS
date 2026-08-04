@@ -48,8 +48,11 @@
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
   --shadow-glow: 0 0 0 3px rgba(99, 102, 241, 0.12);
 
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* --font-sans and --font-mono are supplied by next/font in layout.tsx,
+     which self-hosts Inter and JetBrains Mono from /_next/static. Declaring
+     them here too would race that class in the cascade (:root and a class on
+     <html> carry equal specificity, so whichever rule lands later wins) and
+     could pin the page to a font the browser then has to fetch from Google. */
 }
 
 .dark {
