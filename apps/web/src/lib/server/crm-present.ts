@@ -38,6 +38,8 @@ export function presentLead(lead: LeadWithOwner) {
     closeProbability: lead.closeProbability === null ? null : Number(lead.closeProbability),
     notes: lead.notes,
     lostReason: lead.lostReason,
+    winReason: lead.winReason,
+    customFields: lead.customFields,
     owner: lead.owner
       ? {
           id: lead.owner.id,
@@ -53,5 +55,29 @@ export function presentLead(lead: LeadWithOwner) {
     lastActivityAt: lead.lastActivityAt?.toISOString() ?? null,
     createdAt: lead.createdAt.toISOString(),
     updatedAt: lead.updatedAt.toISOString(),
+  };
+}
+
+export const ACTIVITY_INCLUDE = {
+  actor: { select: { id: true, name: true, avatarUrl: true } },
+} satisfies Prisma.ActivityInclude;
+
+type ActivityWithActor = Prisma.ActivityGetPayload<{ include: typeof ACTIVITY_INCLUDE }>;
+
+/** The lead/client/project timeline entry — calls, meetings, emails, WhatsApp, notes, and system events. */
+export function presentActivity(activity: ActivityWithActor) {
+  return {
+    id: activity.id,
+    type: activity.type,
+    title: activity.title,
+    body: activity.body,
+    outcome: activity.outcome,
+    occurredAt: activity.occurredAt.toISOString(),
+    durationMinutes: activity.durationMinutes,
+    isAiGenerated: activity.isAiGenerated,
+    actor: activity.actor
+      ? { id: activity.actor.id, name: activity.actor.name, avatarUrl: activity.actor.avatarUrl }
+      : null,
+    createdAt: activity.createdAt.toISOString(),
   };
 }

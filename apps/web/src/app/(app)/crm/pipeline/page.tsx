@@ -1,11 +1,15 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { Flame, Plus, Snowflake, Sun } from 'lucide-react';
 
+import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
+import { CreateLeadModal } from '@/components/features/create-lead-modal';
 import { Avatar, Badge, Button, Card, ErrorState, Skeleton } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { cn, formatCurrency, titleCase } from '@/lib/utils';
 
 interface Lead {
@@ -36,11 +40,14 @@ const TEMPERATURE = {
 };
 
 export default function PipelinePage() {
+  const router = useRouter();
+  const { can } = useAuth();
   const [columns, setColumns] = useState<Column[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<Lead | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -117,10 +124,12 @@ export default function PipelinePage() {
             : `${totalDeals} deals · ${formatCurrency(totalValue)} total value`
         }
         actions={
-          <Button size="sm">
-            <Plus className="h-4 w-4" aria-hidden />
-            New lead
-          </Button>
+          can(PERMISSIONS.LEAD_CREATE) && (
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4" aria-hidden />
+              New lead
+            </Button>
+          )
         }
       />
 
@@ -180,6 +189,7 @@ export default function PipelinePage() {
                         setDragging(null);
                         setDropTarget(null);
                       }}
+                      onOpen={() => router.push(`/crm/leads/${lead.id}`)}
                       isDragging={dragging?.id === lead.id}
                     />
                   ))
@@ -189,6 +199,15 @@ export default function PipelinePage() {
           ))}
         </div>
       )}
+
+      <CreateLeadModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(id) => {
+          setShowCreate(false);
+          router.push(`/crm/leads/${id}`);
+        }}
+      />
     </>
   );
 }
@@ -197,11 +216,13 @@ function LeadCard({
   lead,
   onDragStart,
   onDragEnd,
+  onOpen,
   isDragging,
 }: {
   lead: Lead;
   onDragStart: () => void;
   onDragEnd: () => void;
+  onOpen: () => void;
   isDragging: boolean;
 }) {
   const temperature = TEMPERATURE[lead.temperature];
@@ -212,6 +233,7 @@ function LeadCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onClick={onOpen}
       interactive
       className={cn(
         'cursor-grab p-3 active:cursor-grabbing',

@@ -1,19 +1,15 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { Search, Target } from 'lucide-react';
+import { Plus, Search, Target } from 'lucide-react';
 
+import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
-import {
-  Avatar,
-  Badge,
-  Card,
-  EmptyState,
-  ErrorState,
-  Input,
-  Skeleton,
-} from '@/components/ui';
+import { CreateLeadModal } from '@/components/features/create-lead-modal';
+import { Avatar, Badge, Button, Card, EmptyState, ErrorState, Input, Skeleton } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { cn, formatCurrency, formatRelative, titleCase } from '@/lib/utils';
 
 interface Lead {
@@ -40,12 +36,15 @@ const TEMPERATURE_TONE: Record<string, 'danger' | 'warning' | 'info'> = {
 };
 
 export default function LeadsPage() {
+  const router = useRouter();
+  const { can } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async (term: string, statusFilter: string) => {
     setError(null);
@@ -77,18 +76,26 @@ export default function LeadsPage() {
         title="Leads"
         subtitle={loading ? 'Loading…' : `${total} leads visible to you`}
         actions={
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-tertiary"
-              aria-hidden
-            />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search leads…"
-              className="w-56 pl-8"
-              aria-label="Search leads"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-tertiary"
+                aria-hidden
+              />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search leads…"
+                className="w-56 pl-8"
+                aria-label="Search leads"
+              />
+            </div>
+            {can(PERMISSIONS.LEAD_CREATE) && (
+              <Button size="sm" onClick={() => setShowCreate(true)}>
+                <Plus className="h-4 w-4" aria-hidden />
+                New lead
+              </Button>
+            )}
           </div>
         }
       />
@@ -139,7 +146,11 @@ export default function LeadsPage() {
                 </thead>
                 <tbody className="divide-y divide-subtle">
                   {leads.map((lead) => (
-                    <tr key={lead.id} className="transition-colors hover:bg-sunken/60">
+                    <tr
+                      key={lead.id}
+                      onClick={() => router.push(`/crm/leads/${lead.id}`)}
+                      className="cursor-pointer transition-colors hover:bg-sunken/60"
+                    >
                       <td className="px-4 py-3">
                         <p className="text-body-sm font-medium text-primary">{lead.name}</p>
                         <p className="text-caption text-tertiary">
@@ -210,6 +221,15 @@ export default function LeadsPage() {
           </Card>
         )}
       </div>
+
+      <CreateLeadModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(id) => {
+          setShowCreate(false);
+          router.push(`/crm/leads/${id}`);
+        }}
+      />
     </>
   );
 }
