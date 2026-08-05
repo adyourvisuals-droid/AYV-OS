@@ -75,6 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       outcome?: unknown;
       durationMinutes?: unknown;
       occurredAt?: unknown;
+      nextFollowUpAt?: unknown;
     };
     try {
       body = await req.json();
@@ -99,6 +100,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return errorResponse(400, 'VALIDATION_ERROR', 'occurredAt must be a valid date');
       }
       occurredAt = parsed;
+    }
+
+    // Rescheduling the next touchpoint in the same call as logging this one
+    // is the point of the follow-up system: a rep finishes a call and sets
+    // "call back Thursday" without a second trip to the lead's edit form.
+    let nextFollowUpAt: Date | null | undefined;
+    if (body.nextFollowUpAt === null) {
+      nextFollowUpAt = null;
+    } else if (typeof body.nextFollowUpAt === 'string' && body.nextFollowUpAt) {
+      const parsed = new Date(body.nextFollowUpAt);
+      if (Number.isNaN(parsed.getTime())) {
+        return errorResponse(400, 'VALIDATION_ERROR', 'nextFollowUpAt must be a valid date');
+      }
+      nextFollowUpAt = parsed;
     }
 
     const created = await prisma.activity.create({
@@ -137,6 +152,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         score: scored.score,
         temperature: scored.temperature,
         closeProbability: scored.closeProbability,
+        ...(nextFollowUpAt !== undefined ? { nextFollowUpAt } : {}),
       },
     });
 

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   BarChart3,
   Building2,
+  CalendarCheck2,
   CheckSquare,
   FolderKanban,
   Gauge,
@@ -49,6 +50,12 @@ const NAV: NavSection[] = [
     items: [
       { label: 'Pipeline', href: '/crm/pipeline', icon: Target, permissions: [PERMISSIONS.LEAD_READ] },
       { label: 'Leads', href: '/crm/leads', icon: Gauge, permissions: [PERMISSIONS.LEAD_READ] },
+      {
+        label: 'Follow-ups',
+        href: '/crm/leads/follow-ups',
+        icon: CalendarCheck2,
+        permissions: [PERMISSIONS.LEAD_READ],
+      },
     ],
   },
   {

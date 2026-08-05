@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import { addDays, addWeeks, format } from 'date-fns';
 import {
   ArrowLeft,
   Building2,
+  CalendarClock,
   Mail,
   MessageCircle,
   Phone,
@@ -16,6 +18,7 @@ import {
 
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
+import { LogActivityModal } from '@/components/features/log-activity-modal';
 import {
   Avatar,
   Badge,
@@ -28,13 +31,12 @@ import {
   Field,
   Input,
   Modal,
-  Select,
   Skeleton,
   Textarea,
 } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
-import { formatCurrency, formatDate, formatRelative, titleCase } from '@/lib/utils';
+import { cn, formatCurrency, formatDate, formatRelative, titleCase } from '@/lib/utils';
 
 interface LeadDetail {
   id: string;
@@ -59,6 +61,7 @@ interface LeadDetail {
   convertedClientId: string | null;
   daysInStage: number;
   lastActivityAt: string | null;
+  nextFollowUpAt: string | null;
   createdAt: string;
   counts: { activities: number; quotations: number };
 }
@@ -101,6 +104,7 @@ export default function LeadDetailPage() {
   const [showLog, setShowLog] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [savingFollowUp, setSavingFollowUp] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -130,6 +134,18 @@ export default function LeadDetailPage() {
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not convert this lead');
       setConverting(false);
+    }
+  };
+
+  const setFollowUp = async (date: string | null) => {
+    setSavingFollowUp(true);
+    try {
+      const updated = await api.patch<LeadDetail>(`/crm/leads/${leadId}`, { nextFollowUpAt: date });
+      setLead((current) => (current ? { ...current, nextFollowUpAt: updated.nextFollowUpAt } : current));
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not update the follow-up date');
+    } finally {
+      setSavingFollowUp(false);
     }
   };
 
@@ -168,6 +184,9 @@ export default function LeadDetailPage() {
           <div className="flex items-center gap-2">
             <Badge>{titleCase(lead.status)}</Badge>
             <Badge tone={TEMPERATURE_TONE[lead.temperature] ?? 'neutral'}>{titleCase(lead.temperature)}</Badge>
+            {lead.nextFollowUpAt && new Date(lead.nextFollowUpAt) < new Date() && (
+              <Badge tone="danger">Follow-up overdue</Badge>
+            )}
             {lead.owner && <Avatar name={lead.owner.name} src={lead.owner.avatarUrl} />}
             {can(PERMISSIONS.LEAD_UPDATE) && (
               <Button size="sm" variant="secondary" onClick={() => setShowEdit(true)}>
@@ -237,6 +256,56 @@ export default function LeadDetailPage() {
         </Card>
 
         <div className="space-y-4">
+          {can(PERMISSIONS.LEAD_UPDATE) && (
+            <Card>
+              <CardHeader className="flex items-center justify-between">
+                <CardTitle>Next follow-up</CardTitle>
+                <CalendarClock className="h-4 w-4 text-tertiary" aria-hidden />
+              </CardHeader>
+              <CardBody className="space-y-3">
+                {lead.nextFollowUpAt ? (
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={cn(
+                        'text-body-sm font-medium',
+                        new Date(lead.nextFollowUpAt) < new Date() ? 'text-danger' : 'text-primary',
+                      )}
+                    >
+                      {formatDate(lead.nextFollowUpAt, 'long')}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void setFollowUp(null)}
+                      loading={savingFollowUp}
+                    >
+                      Mark done
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-body-sm text-secondary">No follow-up scheduled.</p>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: 'Tomorrow', getDate: () => addDays(new Date(), 1) },
+                    { label: 'In 3 days', getDate: () => addDays(new Date(), 3) },
+                    { label: 'Next week', getDate: () => addWeeks(new Date(), 1) },
+                  ].map((preset) => (
+                    <Button
+                      key={preset.label}
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void setFollowUp(format(preset.getDate(), 'yyyy-MM-dd'))}
+                      disabled={savingFollowUp}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Deal</CardTitle>
@@ -355,110 +424,6 @@ export default function LeadDetailPage() {
         }}
       />
     </>
-  );
-}
-
-const LOGGABLE_TYPES = ['NOTE', 'CALL', 'MEETING', 'EMAIL', 'WHATSAPP'];
-
-function LogActivityModal({
-  open,
-  leadId,
-  onClose,
-  onLogged,
-}: {
-  open: boolean;
-  leadId: string;
-  onClose: () => void;
-  onLogged: () => Promise<void>;
-}) {
-  const [type, setType] = useState('CALL');
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [outcome, setOutcome] = useState('');
-  const [durationMinutes, setDurationMinutes] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setType('CALL');
-    setTitle('');
-    setBody('');
-    setOutcome('');
-    setDurationMinutes('');
-    setError(null);
-  }, [open]);
-
-  const submit = async () => {
-    if (!title.trim()) {
-      setError('A title is required');
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      await api.post(`/crm/leads/${leadId}/activities`, {
-        type,
-        title,
-        body: body || undefined,
-        outcome: outcome || undefined,
-        durationMinutes: durationMinutes ? Number(durationMinutes) : undefined,
-      });
-      await onLogged();
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Could not log this activity');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Log activity">
-      <div className="space-y-4">
-        <Field label="Type">
-          <Select value={type} onChange={(event) => setType(event.target.value)}>
-            {LOGGABLE_TYPES.map((option) => (
-              <option key={option} value={option}>
-                {titleCase(option)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Title">
-          <Input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="Discovery call with the founder"
-          />
-        </Field>
-        <Field label="Details (optional)">
-          <Textarea rows={3} value={body} onChange={(event) => setBody(event.target.value)} />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Outcome (optional)">
-            <Input value={outcome} onChange={(event) => setOutcome(event.target.value)} placeholder="Interested" />
-          </Field>
-          <Field label="Duration, minutes (optional)">
-            <Input
-              type="number"
-              value={durationMinutes}
-              onChange={(event) => setDurationMinutes(event.target.value)}
-            />
-          </Field>
-        </div>
-
-        {error && <p className="text-body-sm text-danger">{error}</p>}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button onClick={() => void submit()} loading={submitting}>
-            Log activity
-          </Button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 

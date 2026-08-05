@@ -51,6 +51,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       notes?: unknown;
       ownerId?: unknown;
       customFields?: unknown;
+      nextFollowUpAt?: unknown;
     };
     try {
       body = await req.json();
@@ -96,6 +97,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     if (typeof body.customFields === 'object' && body.customFields !== null && !Array.isArray(body.customFields)) {
       data.customFields = body.customFields;
+    }
+
+    // null clears the follow-up (mark done without rescheduling); a string
+    // sets or reschedules it.
+    if (body.nextFollowUpAt !== undefined) {
+      if (body.nextFollowUpAt === null) {
+        data.nextFollowUpAt = null;
+      } else if (typeof body.nextFollowUpAt === 'string') {
+        const parsed = new Date(body.nextFollowUpAt);
+        if (Number.isNaN(parsed.getTime())) {
+          return errorResponse(400, 'VALIDATION_ERROR', 'nextFollowUpAt must be a valid date');
+        }
+        data.nextFollowUpAt = parsed;
+      } else {
+        return errorResponse(400, 'VALIDATION_ERROR', 'nextFollowUpAt must be a date string or null');
+      }
     }
 
     if (body.ownerId !== undefined) {

@@ -53,6 +53,7 @@ export function presentLead(lead: LeadWithOwner) {
     stageChangedAt: lead.stageChangedAt.toISOString(),
     daysInStage,
     lastActivityAt: lead.lastActivityAt?.toISOString() ?? null,
+    nextFollowUpAt: lead.nextFollowUpAt?.toISOString() ?? null,
     createdAt: lead.createdAt.toISOString(),
     updatedAt: lead.updatedAt.toISOString(),
   };
