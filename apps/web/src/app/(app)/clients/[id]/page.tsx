@@ -7,6 +7,7 @@ import { ArrowLeft } from 'lucide-react';
 
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
+import { ContractModal, type ContractForEdit } from '@/components/features/contract-modal';
 import {
   Avatar,
   Badge,
@@ -25,6 +26,27 @@ import {
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { formatCurrency, formatDate, healthBand, titleCase } from '@/lib/utils';
+
+interface Contract {
+  id: string;
+  number: string;
+  title: string;
+  status: string;
+  value: number;
+  startDate: string | null;
+  endDate: string | null;
+  noticePeriodDays: number | null;
+  signedAt: string | null;
+  signedByName: string | null;
+}
+
+const CONTRACT_STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
+  DRAFT: 'neutral',
+  SENT: 'info',
+  SIGNED: 'success',
+  TERMINATED: 'danger',
+  EXPIRED: 'warning',
+};
 
 interface Client {
   id: string;
@@ -64,15 +86,21 @@ interface HealthResult {
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
   const clientId = params.id;
-  const { canAny } = useAuth();
+  const { can, canAny } = useAuth();
 
   const [client, setClient] = useState<Client | null>(null);
   const [health, setHealth] = useState<HealthResult | null>(null);
   const [fieldDefs, setFieldDefs] = useState<CustomFieldDefinition[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showNewContract, setShowNewContract] = useState(false);
+  const [editingContract, setEditingContract] = useState<Contract | null>(null);
+  const [signingContractId, setSigningContractId] = useState<string | null>(null);
+  const [signerName, setSignerName] = useState('');
 
   const canSeeCustomFields = canAny(PERMISSIONS.SETTING_READ, PERMISSIONS.CUSTOM_FIELD_MANAGE);
+  const canSeeContracts = can(PERMISSIONS.CONTRACT_READ);
 
   const load = useCallback(async () => {
     setError(null);
@@ -97,16 +125,33 @@ export default function ClientDetailPage() {
           setFieldDefs([]);
         }
       }
+
+      if (canSeeContracts) {
+        try {
+          setContracts(await api.get<Contract[]>(`/crm/contracts?clientId=${clientId}`));
+        } catch {
+          setContracts([]);
+        }
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the client');
     } finally {
       setLoading(false);
     }
-  }, [clientId, canSeeCustomFields]);
+  }, [clientId, canSeeCustomFields, canSeeContracts]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const moveContract = async (contractId: string, status: string, signedByName?: string) => {
+    try {
+      await api.patch(`/crm/contracts/${contractId}/status`, { status, signedByName });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not update the contract');
+    }
+  };
 
   if (loading) {
     return (
@@ -285,6 +330,94 @@ export default function ClientDetailPage() {
             </Card>
           )}
 
+          {canSeeContracts && (
+            <Card>
+              <CardHeader className="flex items-center justify-between">
+                <CardTitle>Contracts</CardTitle>
+                {can(PERMISSIONS.CONTRACT_CREATE) && (
+                  <Button size="sm" variant="secondary" onClick={() => setShowNewContract(true)}>
+                    New
+                  </Button>
+                )}
+              </CardHeader>
+              <CardBody className="space-y-3">
+                {contracts.length === 0 ? (
+                  <p className="text-body-sm text-secondary">No contracts yet.</p>
+                ) : (
+                  contracts.map((contract) => (
+                    <div key={contract.id} className="rounded-md border border-subtle p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-body-sm font-medium text-primary">{contract.title}</span>
+                        <Badge tone={CONTRACT_STATUS_TONE[contract.status] ?? 'neutral'}>
+                          {titleCase(contract.status)}
+                        </Badge>
+                      </div>
+                      <p className="metric mt-1 text-body-sm text-secondary">{formatCurrency(contract.value)}</p>
+                      {contract.signedByName && (
+                        <p className="text-caption text-tertiary">
+                          Signed by {contract.signedByName} · {formatDate(contract.signedAt, 'long')}
+                        </p>
+                      )}
+
+                      {contract.status === 'DRAFT' && can(PERMISSIONS.CONTRACT_CREATE) && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <Button size="sm" variant="secondary" onClick={() => setEditingContract(contract)}>
+                            Edit
+                          </Button>
+                          <Button size="sm" onClick={() => void moveContract(contract.id, 'SENT')}>
+                            Send
+                          </Button>
+                        </div>
+                      )}
+
+                      {contract.status === 'SENT' && can(PERMISSIONS.CONTRACT_APPROVE) && (
+                        <div className="mt-2 space-y-1.5">
+                          {signingContractId === contract.id ? (
+                            <div className="flex gap-1.5">
+                              <Input
+                                value={signerName}
+                                onChange={(event) => setSignerName(event.target.value)}
+                                placeholder="Signed by"
+                                className="h-8"
+                              />
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  void moveContract(contract.id, 'SIGNED', signerName);
+                                  setSigningContractId(null);
+                                  setSignerName('');
+                                }}
+                                disabled={!signerName.trim()}
+                              >
+                                Confirm
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button size="sm" onClick={() => setSigningContractId(contract.id)}>
+                              Mark signed
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                      {contract.status === 'SIGNED' && can(PERMISSIONS.CONTRACT_APPROVE) && (
+                        <div className="mt-2">
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() => void moveContract(contract.id, 'TERMINATED')}
+                          >
+                            Terminate
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </CardBody>
+            </Card>
+          )}
+
           {fieldDefs.length > 0 && (
             <CustomFieldsCard
               clientId={client.id}
@@ -296,6 +429,26 @@ export default function ClientDetailPage() {
           )}
         </div>
       </div>
+
+      <ContractModal
+        open={showNewContract}
+        clientId={client.id}
+        onClose={() => setShowNewContract(false)}
+        onSaved={async () => {
+          setShowNewContract(false);
+          await load();
+        }}
+      />
+
+      <ContractModal
+        open={Boolean(editingContract)}
+        contract={editingContract as ContractForEdit | null}
+        onClose={() => setEditingContract(null)}
+        onSaved={async () => {
+          setEditingContract(null);
+          await load();
+        }}
+      />
     </>
   );
 }

@@ -7,6 +7,8 @@ import {
   Building2,
   CalendarCheck2,
   CheckSquare,
+  FileSignature,
+  FileText,
   FolderKanban,
   Gauge,
   HeartPulse,
@@ -56,6 +58,8 @@ const NAV: NavSection[] = [
         icon: CalendarCheck2,
         permissions: [PERMISSIONS.LEAD_READ],
       },
+      { label: 'Quotations', href: '/crm/quotations', icon: FileText, permissions: [PERMISSIONS.QUOTATION_READ] },
+      { label: 'Contracts', href: '/crm/contracts', icon: FileSignature, permissions: [PERMISSIONS.CONTRACT_READ] },
     ],
   },
   {

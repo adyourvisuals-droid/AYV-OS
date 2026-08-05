@@ -19,6 +19,7 @@ import {
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
 import { LogActivityModal } from '@/components/features/log-activity-modal';
+import { QuotationModal, type QuotationForEdit } from '@/components/features/quotation-modal';
 import {
   Avatar,
   Badge,
@@ -37,6 +38,27 @@ import {
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { cn, formatCurrency, formatDate, formatRelative, titleCase } from '@/lib/utils';
+
+interface Quotation {
+  id: string;
+  number: string;
+  status: string;
+  total: number;
+  validUntil: string | null;
+  discount: number;
+  taxRate: number;
+  terms: string | null;
+  notes: string | null;
+  items: { service: string | null; description: string; quantity: number; unitPrice: number }[];
+}
+
+const QUOTATION_STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
+  DRAFT: 'neutral',
+  SENT: 'info',
+  ACCEPTED: 'success',
+  REJECTED: 'danger',
+  EXPIRED: 'warning',
+};
 
 interface LeadDetail {
   id: string;
@@ -105,6 +127,9 @@ export default function LeadDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [converting, setConverting] = useState(false);
   const [savingFollowUp, setSavingFollowUp] = useState(false);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [showNewQuotation, setShowNewQuotation] = useState(false);
+  const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -115,6 +140,13 @@ export default function LeadDetailPage() {
       ]);
       setLead(leadData);
       setActivities(activityData);
+
+      // Not every viewer holds QUOTATION_READ; a failure here shouldn't sink the page.
+      try {
+        setQuotations(await api.get<Quotation[]>(`/crm/quotations?leadId=${leadId}`));
+      } catch {
+        setQuotations([]);
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the lead');
     } finally {
@@ -146,6 +178,15 @@ export default function LeadDetailPage() {
       setError(caught instanceof ApiError ? caught.message : 'Could not update the follow-up date');
     } finally {
       setSavingFollowUp(false);
+    }
+  };
+
+  const moveQuotation = async (quotationId: string, status: string) => {
+    try {
+      await api.patch(`/crm/quotations/${quotationId}/status`, { status });
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not update the quotation');
     }
   };
 
@@ -401,8 +442,86 @@ export default function LeadDetailPage() {
               )}
             </CardBody>
           </Card>
+
+          {can(PERMISSIONS.QUOTATION_READ) && (
+            <Card>
+              <CardHeader className="flex items-center justify-between">
+                <CardTitle>Quotations</CardTitle>
+                {can(PERMISSIONS.QUOTATION_CREATE) && (
+                  <Button size="sm" variant="secondary" onClick={() => setShowNewQuotation(true)}>
+                    <Plus className="h-3.5 w-3.5" aria-hidden />
+                    New
+                  </Button>
+                )}
+              </CardHeader>
+              <CardBody className="space-y-3">
+                {quotations.length === 0 ? (
+                  <p className="text-body-sm text-secondary">No quotations yet.</p>
+                ) : (
+                  quotations.map((quotation) => (
+                    <div key={quotation.id} className="rounded-md border border-subtle p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-body-sm font-medium text-primary">{quotation.number}</span>
+                        <Badge tone={QUOTATION_STATUS_TONE[quotation.status] ?? 'neutral'}>
+                          {titleCase(quotation.status)}
+                        </Badge>
+                      </div>
+                      <p className="metric mt-1 text-body-sm text-secondary">{formatCurrency(quotation.total)}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {quotation.status === 'DRAFT' && can(PERMISSIONS.QUOTATION_UPDATE) && (
+                          <>
+                            <Button size="sm" variant="secondary" onClick={() => setEditingQuotation(quotation)}>
+                              Edit
+                            </Button>
+                            <Button size="sm" onClick={() => void moveQuotation(quotation.id, 'SENT')}>
+                              Send
+                            </Button>
+                          </>
+                        )}
+                        {quotation.status === 'SENT' && can(PERMISSIONS.QUOTATION_APPROVE) && (
+                          <>
+                            <Button size="sm" onClick={() => void moveQuotation(quotation.id, 'ACCEPTED')}>
+                              Accepted
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => void moveQuotation(quotation.id, 'REJECTED')}
+                            >
+                              Rejected
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardBody>
+            </Card>
+          )}
         </div>
       </div>
+
+      <QuotationModal
+        open={showNewQuotation}
+        leadId={lead.id}
+        clientId={lead.convertedClientId ?? undefined}
+        onClose={() => setShowNewQuotation(false)}
+        onSaved={async () => {
+          setShowNewQuotation(false);
+          await load();
+        }}
+      />
+
+      <QuotationModal
+        open={Boolean(editingQuotation)}
+        quotation={editingQuotation as QuotationForEdit | null}
+        onClose={() => setEditingQuotation(null)}
+        onSaved={async () => {
+          setEditingQuotation(null);
+          await load();
+        }}
+      />
 
       <LogActivityModal
         open={showLog}
