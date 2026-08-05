@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
+  Briefcase,
   Building2,
   CalendarCheck2,
   CheckSquare,
@@ -56,6 +57,7 @@ const COMMANDS: Command[] = [
   { id: 'nav-client-health', label: 'Go to Client health', group: 'Navigate', icon: HeartPulse, permissions: [PERMISSIONS.CLIENT_HEALTH_READ], run: (r) => r.push('/clients/health') },
   { id: 'nav-finance', label: 'Go to Finance', group: 'Navigate', icon: Receipt, permissions: [PERMISSIONS.INVOICE_READ], run: (r) => r.push('/finance') },
   { id: 'nav-people', label: 'Go to People', group: 'Navigate', icon: Users, permissions: [PERMISSIONS.EMPLOYEE_READ], run: (r) => r.push('/people') },
+  { id: 'nav-recruitment', label: 'Go to Recruitment', group: 'Navigate', icon: Briefcase, permissions: [PERMISSIONS.CANDIDATE_READ], run: (r) => r.push('/people/recruitment') },
   { id: 'nav-analytics', label: 'Go to Analytics', group: 'Navigate', icon: BarChart3, permissions: [PERMISSIONS.REPORT_READ], run: (r) => r.push('/analytics') },
   { id: 'nav-ai', label: 'Go to AI Center', group: 'Navigate', icon: Sparkles, permissions: [PERMISSIONS.AI_USE], run: (r) => r.push('/ai') },
   { id: 'nav-settings', label: 'Go to Settings', group: 'Navigate', icon: SettingsIcon, run: (r) => r.push('/settings') },

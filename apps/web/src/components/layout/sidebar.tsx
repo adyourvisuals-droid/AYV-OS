@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   BarChart3,
+  Briefcase,
   Building2,
   CalendarCheck2,
   CheckSquare,
@@ -82,6 +83,12 @@ const NAV: NavSection[] = [
     items: [
       { label: 'Finance', href: '/finance', icon: Receipt, permissions: [PERMISSIONS.INVOICE_READ] },
       { label: 'People', href: '/people', icon: Users, permissions: [PERMISSIONS.EMPLOYEE_READ] },
+      {
+        label: 'Recruitment',
+        href: '/people/recruitment',
+        icon: Briefcase,
+        permissions: [PERMISSIONS.CANDIDATE_READ],
+      },
       { label: 'Analytics', href: '/analytics', icon: BarChart3, permissions: [PERMISSIONS.REPORT_READ] },
     ],
   },
