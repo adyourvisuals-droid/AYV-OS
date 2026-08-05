@@ -40,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     const task = await prisma.task.findFirst({
-      where: { id, ...taskVisibilityFilter(principal) },
+      where: { id, ...(await taskVisibilityFilter(principal)) },
     });
     if (!task) return errorResponse(404, 'NOT_FOUND', 'Task not found');
 

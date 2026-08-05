@@ -10,13 +10,15 @@ import { useAuth } from '@/lib/auth-context';
 import { AutomationsTab } from './automations-tab';
 import { CustomFieldsTab } from './custom-fields-tab';
 import { RolesTab } from './roles-tab';
+import { TeamTab } from './team-tab';
 
-type SettingsTab = 'roles' | 'automations' | 'custom-fields';
+type SettingsTab = 'team' | 'roles' | 'automations' | 'custom-fields';
 
 export default function SettingsPage() {
   const { canAny } = useAuth();
 
   const availableTabs: { key: SettingsTab; label: string; visible: boolean }[] = [
+    { key: 'team', label: 'Team & hierarchy', visible: canAny(PERMISSIONS.USER_READ) },
     { key: 'roles', label: 'Roles & permissions', visible: canAny(PERMISSIONS.ROLE_READ) },
     { key: 'automations', label: 'Automations', visible: canAny(PERMISSIONS.AUTOMATION_READ) },
     {
@@ -68,6 +70,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="p-6">
+        {activeTab === 'team' && <TeamTab />}
         {activeTab === 'roles' && <RolesTab />}
         {activeTab === 'automations' && <AutomationsTab />}
         {activeTab === 'custom-fields' && <CustomFieldsTab />}

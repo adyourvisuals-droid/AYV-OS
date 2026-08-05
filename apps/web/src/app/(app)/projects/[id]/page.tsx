@@ -2,21 +2,37 @@
 
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Plus } from 'lucide-react';
 import Link from 'next/link';
 
+import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
 import {
   Avatar,
   AvatarGroup,
   Badge,
+  Button,
   Card,
   ErrorState,
+  Field,
+  Input,
+  Modal,
   Progress,
+  Select,
   Skeleton,
+  Textarea,
 } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { cn, formatCurrency, formatDate, formatRelative, titleCase } from '@/lib/utils';
+
+interface AssignableUser {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  designation: string | null;
+}
 
 interface Task {
   id: string;
@@ -78,6 +94,13 @@ export default function ProjectBoardPage() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<Task | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [assignable, setAssignable] = useState<AssignableUser[]>([]);
+
+  const { can } = useAuth();
+  const canCreateTask = can(PERMISSIONS.TASK_CREATE);
+  const canUpdateTask = can(PERMISSIONS.TASK_UPDATE);
 
   const load = useCallback(async () => {
     setError(null);
@@ -90,6 +113,14 @@ export default function ProjectBoardPage() {
       setProject(projectData);
       setColumns(boardData);
       setHealth(healthData);
+
+      // The server decides who this person may allot work to; a failure here
+      // just means the assignee picker stays empty, not that the board breaks.
+      try {
+        setAssignable(await api.get<AssignableUser[]>('/tasks/assignable'));
+      } catch {
+        setAssignable([]);
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the project');
     } finally {
@@ -167,6 +198,12 @@ export default function ProjectBoardPage() {
           <div className="flex items-center gap-3">
             {project.manager && <Avatar name={project.manager.name} src={project.manager.avatarUrl} />}
             <AvatarGroup people={project.members} max={4} />
+            {canCreateTask && (
+              <Button size="sm" onClick={() => setShowNewTask(true)}>
+                <Plus className="h-4 w-4" aria-hidden />
+                New task
+              </Button>
+            )}
           </div>
         }
       />
@@ -273,6 +310,9 @@ export default function ProjectBoardPage() {
                         setDragging(null);
                         setDropTarget(null);
                       }}
+                      onClick={() => {
+                        if (canUpdateTask) setEditingTask(task);
+                      }}
                       interactive
                       className={cn(
                         'cursor-grab p-3 active:cursor-grabbing',
@@ -331,6 +371,145 @@ export default function ProjectBoardPage() {
           ))}
         </div>
       </div>
+
+      <TaskModal
+        open={showNewTask || Boolean(editingTask)}
+        task={editingTask}
+        projectId={projectId}
+        assignable={assignable}
+        onClose={() => {
+          setShowNewTask(false);
+          setEditingTask(null);
+        }}
+        onSaved={async () => {
+          setShowNewTask(false);
+          setEditingTask(null);
+          await load();
+        }}
+      />
     </>
+  );
+}
+
+/** Creates a task when `task` is null, otherwise edits that task. */
+function TaskModal({
+  open,
+  task,
+  projectId,
+  assignable,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  task: Task | null;
+  projectId: string;
+  assignable: AssignableUser[];
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [priority, setPriority] = useState('MEDIUM');
+  const [dueDate, setDueDate] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(task?.title ?? '');
+    setDescription('');
+    setAssigneeId(task?.assignee?.id ?? '');
+    setPriority(task?.priority ?? 'MEDIUM');
+    setDueDate(task?.dueDate ? task.dueDate.slice(0, 10) : '');
+    setError(null);
+  }, [open, task]);
+
+  const submit = async () => {
+    if (!title.trim()) {
+      setError('A title is required');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+
+    const payload = {
+      title,
+      assigneeId: assigneeId || null,
+      priority,
+      dueDate: dueDate || null,
+      ...(task ? {} : { projectId, description: description || undefined }),
+    };
+
+    try {
+      if (task) {
+        await api.patch(`/tasks/${task.id}`, payload);
+      } else {
+        await api.post('/tasks', payload);
+      }
+      await onSaved();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not save the task');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={task ? 'Edit task' : 'New task'}>
+      <div className="space-y-4">
+        <Field label="Title">
+          <Input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Draft the launch storyboard"
+          />
+        </Field>
+
+        {!task && (
+          <Field label="Description (optional)">
+            <Textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} />
+          </Field>
+        )}
+
+        <Field label="Assign to">
+          <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
+            <option value="">Unassigned</option>
+            {assignable.map((person) => (
+              <option key={person.id} value={person.id}>
+                {person.name}
+                {person.designation ? ` — ${person.designation}` : ''}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Priority">
+            <Select value={priority} onChange={(event) => setPriority(event.target.value)}>
+              {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((option) => (
+                <option key={option} value={option}>
+                  {titleCase(option)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Due date">
+            <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+          </Field>
+        </div>
+
+        {error && <p className="text-body-sm text-danger">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button onClick={() => void submit()} loading={submitting}>
+            {task ? 'Save changes' : 'Create task'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

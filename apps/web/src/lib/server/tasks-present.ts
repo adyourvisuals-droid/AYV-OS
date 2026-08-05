@@ -3,7 +3,8 @@ import { PERMISSIONS, TaskStatus } from '@ayv/types';
 import type { Prisma } from '../../../generated/prisma';
 
 import type { AuthPrincipal } from './auth';
-import { scopeFilter } from './scope';
+import { reportingTreeIds } from './hierarchy';
+import { scopeFilter, scopeOf } from './scope';
 
 export const TASK_INCLUDE = {
   assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
@@ -16,10 +17,26 @@ type TaskWithRelations = Prisma.TaskGetPayload<{ include: typeof TASK_INCLUDE }>
 /**
  * Portal users only ever see tasks explicitly marked client-visible, on
  * projects belonging to their own client. Mirrors TasksService#visibilityFilter.
+ *
+ * At TEAM scope this also follows the reporting line, not just the team
+ * record. Team membership alone cannot express a manager who owns people
+ * across several teams, and it silently excluded anyone with no team at all,
+ * so a manager's own reports were invisible to them.
  */
-export function taskVisibilityFilter(principal: AuthPrincipal): Prisma.TaskWhereInput {
+export async function taskVisibilityFilter(principal: AuthPrincipal): Promise<Prisma.TaskWhereInput> {
   if (principal.clientId) {
     return { clientVisible: true, project: { clientId: principal.clientId } };
+  }
+
+  if (scopeOf(principal, PERMISSIONS.TASK_READ) === 'TEAM') {
+    const visible = new Set(await reportingTreeIds(principal.userId));
+
+    return {
+      OR: [
+        { assigneeId: { in: [...visible] } },
+        ...(principal.teamId ? [{ assignee: { teamId: principal.teamId } }] : []),
+      ],
+    };
   }
 
   return scopeFilter(principal, PERMISSIONS.TASK_READ, {

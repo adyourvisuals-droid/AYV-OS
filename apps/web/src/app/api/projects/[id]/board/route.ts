@@ -18,7 +18,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       where: {
         projectId: id,
         parentTaskId: null,
-        ...taskVisibilityFilter(principal),
+        ...(await taskVisibilityFilter(principal)),
       },
       include: TASK_INCLUDE,
       orderBy: { position: 'asc' },
