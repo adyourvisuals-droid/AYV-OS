@@ -6,6 +6,7 @@ import {
   BarChart3,
   Briefcase,
   Building2,
+  Calendar,
   CalendarCheck2,
   CheckSquare,
   FileSignature,
@@ -69,6 +70,7 @@ const NAV: NavSection[] = [
       { label: 'Projects', href: '/projects', icon: FolderKanban, permissions: [PERMISSIONS.PROJECT_READ] },
       { label: 'My tasks', href: '/tasks', icon: CheckSquare, permissions: [PERMISSIONS.TASK_READ] },
       { label: 'Creative', href: '/creative', icon: Palette, permissions: [PERMISSIONS.CREATIVE_READ] },
+      { label: 'Content calendar', href: '/creative/calendar', icon: Calendar, permissions: [PERMISSIONS.POST_READ] },
     ],
   },
   {
