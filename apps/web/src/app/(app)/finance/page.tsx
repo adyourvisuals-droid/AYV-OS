@@ -7,6 +7,7 @@ import { CheckCircle2, Plus, Receipt, XCircle } from 'lucide-react';
 
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
+import { LedgerTab } from '@/components/features/ledger-tab';
 import { MetricCard } from '@/components/features/metric-card';
 import {
   Badge,
@@ -95,7 +96,7 @@ const EXPENSE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' 
 export default function FinancePage() {
   const { can } = useAuth();
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<'invoices' | 'expenses' | 'vendors'>('invoices');
+  const [tab, setTab] = useState<'invoices' | 'expenses' | 'vendors' | 'ledger'>('invoices');
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -247,6 +248,7 @@ export default function FinancePage() {
           { key: 'invoices', label: `Invoices (${invoices.length})` },
           { key: 'expenses', label: `Expenses (${expenses.length})` },
           ...(canManageVendors ? [{ key: 'vendors', label: `Vendors (${vendors.length})` }] : []),
+          ...(can(PERMISSIONS.LEDGER_READ) ? [{ key: 'ledger', label: 'Daily ledger' }] : []),
         ]}
         active={tab}
         onChange={(key) => setTab(key as typeof tab)}
@@ -410,6 +412,8 @@ export default function FinancePage() {
               ))}
             </div>
           ))}
+
+        {tab === 'ledger' && <LedgerTab />}
       </div>
 
       <NewInvoiceModal

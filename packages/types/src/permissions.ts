@@ -120,6 +120,8 @@ export const PERMISSIONS = {
   VENDOR_MANAGE: 'finance:vendor:manage',
   PNL_READ: 'finance:pnl:read',
   BUDGET_MANAGE: 'finance:budget:manage',
+  LEDGER_READ: 'finance:ledger:read',
+  LEDGER_MANAGE: 'finance:ledger:manage',
 
   // ─── Operations ──────────────────────────────────────────────────────────
   SOP_READ: 'ops:sop:read',

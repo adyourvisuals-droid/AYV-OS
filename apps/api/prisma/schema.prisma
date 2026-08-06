@@ -369,6 +369,7 @@ model Organization {
   socialPosts        SocialPost[]
   shoots             Shoot[]
   clientCredentials  ClientCredential[]
+  ledgerEntries      DailyLedgerEntry[]
   tickets            Ticket[]
   knowledgeArticles  KnowledgeArticle[]
   integrations       Integration[]
@@ -451,6 +452,7 @@ model User {
   socialPosts     SocialPost[]      @relation("PostAuthor")
   shootsCreated   Shoot[]           @relation("ShootCreatedBy")
   credentialsAdded ClientCredential[] @relation("CredentialCreatedBy")
+  ledgerEntriesAdded DailyLedgerEntry[] @relation("LedgerEntryCreatedBy")
   tickets         Ticket[]          @relation("TicketAssignee")
 
   @@unique([organizationId, email])
@@ -1393,6 +1395,36 @@ model Vendor {
   expenses Expense[]
 
   @@index([organizationId, deletedAt])
+}
+
+enum LedgerEntryType {
+  INCOME
+  EXPENSE
+}
+
+/// A lightweight day-by-day cash log — petty cash, informal income/spend
+/// that doesn't warrant a full Invoice or Expense record — kept separate
+/// from those formal, approval-gated flows on purpose.
+model DailyLedgerEntry {
+  id             String @id @default(cuid())
+  organizationId String
+
+  type     LedgerEntryType
+  category String
+  amount   Decimal  @db.Decimal(14, 2)
+  date     DateTime
+  note     String?
+
+  createdById String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("LedgerEntryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([organizationId, date])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
