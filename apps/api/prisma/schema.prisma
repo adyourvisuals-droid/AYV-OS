@@ -367,6 +367,7 @@ model Organization {
   attendances        Attendance[]
   leaves             Leave[]
   socialPosts        SocialPost[]
+  shoots             Shoot[]
   tickets            Ticket[]
   knowledgeArticles  KnowledgeArticle[]
   integrations       Integration[]
@@ -447,6 +448,7 @@ model User {
   aiConversations AiConversation[]
   assets          Asset[]
   socialPosts     SocialPost[]      @relation("PostAuthor")
+  shootsCreated   Shoot[]           @relation("ShootCreatedBy")
   tickets         Ticket[]          @relation("TicketAssignee")
 
   @@unique([organizationId, email])
@@ -857,6 +859,7 @@ model Client {
   contracts       Contract[]
   tickets         Ticket[]
   socialPosts     SocialPost[]
+  shoots          Shoot[]
   creativeBriefs  CreativeBrief[]
 
   @@index([organizationId, deletedAt])
@@ -1808,6 +1811,46 @@ model Campaign {
   posts SocialPost[]
 
   @@index([organizationId, status])
+  @@index([clientId])
+}
+
+enum ShootStatus {
+  PLANNED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+model Shoot {
+  id             String @id @default(cuid())
+  organizationId String
+
+  title    String
+  clientId String?
+  type     String?
+
+  scheduledAt DateTime
+  endAt       DateTime?
+  location    String?
+
+  /// User ids of assigned crew — a lightweight array like Task.labels,
+  /// not a join table, since a shoot's crew doesn't need per-row metadata.
+  crewIds   String[] @default([])
+  equipment String?
+  notes     String?
+  status    ShootStatus @default(PLANNED)
+
+  createdById String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client?      @relation(fields: [clientId], references: [id])
+  createdBy    User?        @relation("ShootCreatedBy", fields: [createdById], references: [id])
+
+  @@index([organizationId, scheduledAt])
   @@index([clientId])
 }
 

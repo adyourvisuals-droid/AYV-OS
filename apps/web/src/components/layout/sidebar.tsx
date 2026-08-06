@@ -8,6 +8,7 @@ import {
   Building2,
   Calendar,
   CalendarCheck2,
+  Camera,
   CheckSquare,
   FileSignature,
   FileText,
@@ -71,6 +72,7 @@ const NAV: NavSection[] = [
       { label: 'My tasks', href: '/tasks', icon: CheckSquare, permissions: [PERMISSIONS.TASK_READ] },
       { label: 'Creative', href: '/creative', icon: Palette, permissions: [PERMISSIONS.CREATIVE_READ] },
       { label: 'Content calendar', href: '/creative/calendar', icon: Calendar, permissions: [PERMISSIONS.POST_READ] },
+      { label: 'Shoot schedule', href: '/creative/shoots', icon: Camera, permissions: [PERMISSIONS.SHOOT_READ] },
     ],
   },
   {
