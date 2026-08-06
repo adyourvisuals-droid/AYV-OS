@@ -108,37 +108,34 @@ export default function ClientDetailPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
+      // Only the client itself gates the page. Once it's in, render — the
+      // health score, custom fields and contracts are independent sections
+      // that each degrade on their own, so they load in parallel rather
+      // than as a four-request waterfall that holds the whole page blank.
       const clientData = await api.get<Client>(`/clients/${clientId}`);
       setClient(clientData);
+      setLoading(false);
 
-      // Health is a separate call because it recomputes from live data;
-      // a failure here must not block the rest of the page.
-      try {
-        setHealth(await api.get<HealthResult>(`/clients/${clientId}/health`));
-      } catch {
-        setHealth(null);
-      }
-
-      // Not every viewer can see the custom-field registry; a 403 here
-      // just means the section doesn't render, not a page failure.
-      if (canSeeCustomFields) {
-        try {
-          setFieldDefs(await api.get<CustomFieldDefinition[]>('/settings/custom-fields?entityType=CLIENT'));
-        } catch {
-          setFieldDefs([]);
-        }
-      }
-
-      if (canSeeContracts) {
-        try {
-          setContracts(await api.get<Contract[]>(`/crm/contracts?clientId=${clientId}`));
-        } catch {
-          setContracts([]);
-        }
-      }
+      void Promise.all([
+        api
+          .get<HealthResult>(`/clients/${clientId}/health`)
+          .then(setHealth)
+          .catch(() => setHealth(null)),
+        canSeeCustomFields
+          ? api
+              .get<CustomFieldDefinition[]>('/settings/custom-fields?entityType=CLIENT')
+              .then(setFieldDefs)
+              .catch(() => setFieldDefs([]))
+          : Promise.resolve(),
+        canSeeContracts
+          ? api
+              .get<Contract[]>(`/crm/contracts?clientId=${clientId}`)
+              .then(setContracts)
+              .catch(() => setContracts([]))
+          : Promise.resolve(),
+      ]);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the client');
-    } finally {
       setLoading(false);
     }
   }, [clientId, canSeeCustomFields, canSeeContracts]);

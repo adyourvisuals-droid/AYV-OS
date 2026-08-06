@@ -68,10 +68,13 @@ export function TeamTab() {
       // carries its role name for display. The role catalogue is only needed
       // for the seniority checks and the role picker in the create/edit
       // modal — both edit-only — so a caller with USER_READ but not ROLE_READ
-      // still sees the team instead of a 403 taking down the whole tab.
-      const memberData = await api.get<Member[]>('/settings/users');
+      // still sees the team instead of a 403 taking down the whole tab. Both
+      // fire in parallel; only the roles call is allowed to fail quietly.
+      const [memberData, roleData] = await Promise.all([
+        api.get<Member[]>('/settings/users'),
+        api.get<Role[]>('/settings/roles').catch(() => [] as Role[]),
+      ]);
       setMembers(memberData);
-      const roleData = await api.get<Role[]>('/settings/roles').catch(() => [] as Role[]);
       setRoles(roleData);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load the team');
