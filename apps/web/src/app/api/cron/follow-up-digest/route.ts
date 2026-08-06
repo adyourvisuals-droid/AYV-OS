@@ -13,9 +13,14 @@ export const runtime = 'nodejs';
 
 /**
  * Daily digest: one notification per rep who has a lead follow-up overdue or
- * due today, so "check your follow-ups" doesn't rely on someone remembering
- * to open the CRM. Wired to Vercel Cron via vercel.json (see the crons entry
- * there) — this route is otherwise unreachable without CRON_SECRET.
+ * due today, plus reminders for today's shoots (to assigned crew) and
+ * today's still-unpublished scheduled content (to its author) — three
+ * unrelated reminders sharing one cron because they're all "things that
+ * would otherwise rely on someone remembering to check a list," and adding
+ * a new scheduled Vercel Cron entry per reminder isn't worth the deploy
+ * config sprawl for jobs this cheap. Wired to Vercel Cron via vercel.json
+ * (see the crons entry there) — this route is otherwise unreachable
+ * without CRON_SECRET.
  *
  * Vercel sends `Authorization: Bearer $CRON_SECRET` on cron-triggered
  * invocations when that env var is set; this checks the same value.
@@ -98,6 +103,96 @@ export async function GET(req: NextRequest) {
       notified += 1;
     }
 
-    return successResponse({ repsWithFollowUps: byOwner.size, notified, alreadySent });
+    const shoots = await notifyTodaysShoots(todayStart, todayEnd);
+    const content = await notifyTodaysContent(todayStart, todayEnd);
+
+    return successResponse({
+      repsWithFollowUps: byOwner.size,
+      notified,
+      alreadySent,
+      shoots,
+      content,
+    });
   });
+}
+
+/** One reminder per crew member per shoot happening today. */
+async function notifyTodaysShoots(todayStart: Date, todayEnd: Date) {
+  const shoots = await prisma.shoot.findMany({
+    where: { status: { in: ['PLANNED', 'CONFIRMED'] }, scheduledAt: { gte: todayStart, lte: todayEnd } },
+    select: { id: true, organizationId: true, title: true, location: true, scheduledAt: true, crewIds: true },
+  });
+
+  let notified = 0;
+  let alreadySent = 0;
+
+  for (const shoot of shoots) {
+    for (const userId of shoot.crewIds) {
+      const existing = await prisma.notification.findFirst({
+        where: { userId, type: 'SHOOT_REMINDER', entityId: shoot.id, createdAt: { gte: todayStart } },
+        select: { id: true },
+      });
+      if (existing) {
+        alreadySent += 1;
+        continue;
+      }
+
+      await prisma.notification.create({
+        data: {
+          organizationId: shoot.organizationId,
+          userId,
+          type: 'SHOOT_REMINDER',
+          title: `Shoot today: ${shoot.title}`,
+          body: shoot.location ?? undefined,
+          link: '/creative/shoots',
+          severity: 'INFO',
+          entityType: 'Shoot',
+          entityId: shoot.id,
+        },
+      });
+      notified += 1;
+    }
+  }
+
+  return { notified, alreadySent };
+}
+
+/** One reminder per author for each SCHEDULED post whose slot is today but hasn't gone out yet. */
+async function notifyTodaysContent(todayStart: Date, todayEnd: Date) {
+  const posts = await prisma.socialPost.findMany({
+    where: { status: 'SCHEDULED', scheduledAt: { gte: todayStart, lte: todayEnd }, authorId: { not: null } },
+    select: { id: true, organizationId: true, authorId: true, caption: true, platforms: true },
+  });
+
+  let notified = 0;
+  let alreadySent = 0;
+
+  for (const post of posts) {
+    const userId = post.authorId!;
+    const existing = await prisma.notification.findFirst({
+      where: { userId, type: 'CONTENT_DUE', entityId: post.id, createdAt: { gte: todayStart } },
+      select: { id: true },
+    });
+    if (existing) {
+      alreadySent += 1;
+      continue;
+    }
+
+    await prisma.notification.create({
+      data: {
+        organizationId: post.organizationId,
+        userId,
+        type: 'CONTENT_DUE',
+        title: `Post due today on ${post.platforms.join(', ')}`,
+        body: post.caption ?? undefined,
+        link: '/creative/calendar',
+        severity: 'INFO',
+        entityType: 'SocialPost',
+        entityId: post.id,
+      },
+    });
+    notified += 1;
+  }
+
+  return { notified, alreadySent };
 }
