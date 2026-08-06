@@ -461,7 +461,12 @@ export default function LeadDetailPage() {
                   quotations.map((quotation) => (
                     <div key={quotation.id} className="rounded-md border border-subtle p-2.5">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-body-sm font-medium text-primary">{quotation.number}</span>
+                        <Link
+                          href={`/crm/quotations/${quotation.id}`}
+                          className="text-body-sm font-medium text-primary hover:text-brand-600 hover:underline"
+                        >
+                          {quotation.number}
+                        </Link>
                         <Badge tone={QUOTATION_STATUS_TONE[quotation.status] ?? 'neutral'}>
                           {titleCase(quotation.status)}
                         </Badge>

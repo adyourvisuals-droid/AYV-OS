@@ -50,6 +50,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
     permissions: [
       ...all(
         P.ORG_READ,
+        P.ORG_UPDATE,
         P.SETTING_READ,
         P.USER_READ,
         P.ROLE_READ,

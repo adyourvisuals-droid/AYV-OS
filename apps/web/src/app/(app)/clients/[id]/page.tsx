@@ -38,6 +38,7 @@ interface Contract {
   noticePeriodDays: number | null;
   signedAt: string | null;
   signedByName: string | null;
+  terms: unknown;
 }
 
 const CONTRACT_STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
@@ -347,7 +348,12 @@ export default function ClientDetailPage() {
                   contracts.map((contract) => (
                     <div key={contract.id} className="rounded-md border border-subtle p-2.5">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-body-sm font-medium text-primary">{contract.title}</span>
+                        <Link
+                          href={`/crm/contracts/${contract.id}`}
+                          className="truncate text-body-sm font-medium text-primary hover:text-brand-600 hover:underline"
+                        >
+                          {contract.title}
+                        </Link>
                         <Badge tone={CONTRACT_STATUS_TONE[contract.status] ?? 'neutral'}>
                           {titleCase(contract.status)}
                         </Badge>

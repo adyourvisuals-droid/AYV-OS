@@ -106,8 +106,19 @@ export default function ContractsPage() {
                 <tbody className="divide-y divide-subtle">
                   {contracts.map((contract) => (
                     <tr key={contract.id} className="transition-colors hover:bg-sunken/60">
-                      <td className="px-4 py-3 text-body-sm font-medium text-primary">{contract.number}</td>
-                      <td className="px-4 py-3 text-body-sm text-secondary">{contract.title}</td>
+                      <td className="px-4 py-3">
+                        <Link
+                          href={`/crm/contracts/${contract.id}`}
+                          className="metric text-body-sm font-medium text-primary hover:text-brand-600"
+                        >
+                          {contract.number}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-body-sm text-secondary">
+                        <Link href={`/crm/contracts/${contract.id}`} className="hover:text-brand-600 hover:underline">
+                          {contract.title}
+                        </Link>
+                      </td>
                       <td className="px-4 py-3 text-body-sm text-secondary">
                         {contract.client ? (
                           <Link href={`/clients/${contract.client.id}`} className="hover:text-brand-600 hover:underline">

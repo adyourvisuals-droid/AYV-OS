@@ -1,9 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Plus, X } from 'lucide-react';
 
 import { Button, Field, Input, Modal, Textarea } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
+
+export interface TermsClause {
+  title: string;
+  body: string;
+}
 
 export interface ContractForEdit {
   id: string;
@@ -12,9 +18,47 @@ export interface ContractForEdit {
   startDate: string | null;
   endDate: string | null;
   noticePeriodDays: number | null;
+  terms: unknown;
 }
 
-/** Creates a contract, or edits one still in DRAFT — prefillValue seeds the deal amount from a won quotation. */
+const DEFAULT_CLAUSES: TermsClause[] = [
+  { title: 'Scope of work', body: '' },
+  { title: 'Payment terms', body: '' },
+  { title: 'Termination', body: '' },
+];
+
+/**
+ * Reads whatever shape `Contract.terms` happens to hold — structured
+ * clauses, or the legacy single-note blob — returning `[]` when there's
+ * nothing there. Read-only views (the document page) should show nothing
+ * rather than an empty template; only the edit form seeds a starting
+ * template via `parseTermsForEditing` below.
+ */
+export function parseTerms(raw: unknown): TermsClause[] {
+  if (raw && typeof raw === 'object' && Array.isArray((raw as { clauses?: unknown }).clauses)) {
+    const clauses = (raw as { clauses: unknown[] }).clauses;
+    return clauses
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      .map((entry) => ({
+        title: typeof entry.title === 'string' ? entry.title : '',
+        body: typeof entry.body === 'string' ? entry.body : '',
+      }))
+      .filter((clause) => clause.title.trim() || clause.body.trim());
+  }
+  if (raw && typeof raw === 'object' && typeof (raw as { notes?: unknown }).notes === 'string') {
+    const notes = (raw as { notes: string }).notes;
+    return notes.trim() ? [{ title: 'Terms', body: notes }] : [];
+  }
+  return [];
+}
+
+/** Same parse, but falls back to a starting template of blank clauses — used to seed the edit form. */
+export function parseTermsForEditing(raw: unknown): TermsClause[] {
+  const parsed = parseTerms(raw);
+  return parsed.length > 0 ? parsed : DEFAULT_CLAUSES;
+}
+
+/** Creates a contract, or edits one still in DRAFT — terms are a dynamic list of clauses, editable either way. */
 export function ContractModal({
   open,
   clientId,
@@ -37,7 +81,7 @@ export function ContractModal({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [noticePeriodDays, setNoticePeriodDays] = useState('30');
-  const [terms, setTerms] = useState('');
+  const [clauses, setClauses] = useState<TermsClause[]>(DEFAULT_CLAUSES);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,13 +93,14 @@ export function ContractModal({
       setStartDate(contract.startDate ? contract.startDate.slice(0, 10) : '');
       setEndDate(contract.endDate ? contract.endDate.slice(0, 10) : '');
       setNoticePeriodDays(contract.noticePeriodDays !== null ? String(contract.noticePeriodDays) : '30');
+      setClauses(parseTermsForEditing(contract.terms));
     } else {
       setTitle('');
       setValue(prefillValue ? String(prefillValue) : '');
       setStartDate('');
       setEndDate('');
       setNoticePeriodDays('30');
-      setTerms('');
+      setClauses(DEFAULT_CLAUSES);
     }
     setError(null);
   }, [open, contract, prefillValue]);
@@ -68,13 +113,16 @@ export function ContractModal({
     setSubmitting(true);
     setError(null);
     try {
+      const cleanedClauses = clauses.filter((clause) => clause.title.trim() || clause.body.trim());
+
       const payload = {
         title,
         value: value ? Number(value) : 0,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         noticePeriodDays: noticePeriodDays ? Number(noticePeriodDays) : undefined,
-        ...(contract ? {} : { terms: terms ? { notes: terms } : undefined, clientId, leadId }),
+        terms: cleanedClauses.length > 0 ? { clauses: cleanedClauses } : undefined,
+        ...(contract ? {} : { clientId, leadId }),
       };
 
       if (contract) {
@@ -91,7 +139,7 @@ export function ContractModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={contract ? 'Edit contract' : 'New contract'}>
+    <Modal open={open} onClose={onClose} title={contract ? 'Edit contract' : 'New contract'} className="max-w-xl">
       <div className="space-y-4">
         <Field label="Title">
           <Input
@@ -118,11 +166,58 @@ export function ContractModal({
             onChange={(event) => setNoticePeriodDays(event.target.value)}
           />
         </Field>
-        {!contract && (
-          <Field label="Terms (optional)">
-            <Textarea rows={3} value={terms} onChange={(event) => setTerms(event.target.value)} />
-          </Field>
-        )}
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-caption font-medium text-secondary">Terms &amp; conditions</span>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setClauses((prev) => [...prev, { title: '', body: '' }])}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Add clause
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {clauses.map((clause, index) => (
+              <div key={index} className="space-y-1.5 rounded-md border border-subtle p-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={clause.title}
+                    onChange={(event) =>
+                      setClauses((prev) =>
+                        prev.map((row, i) => (i === index ? { ...row, title: event.target.value } : row)),
+                      )
+                    }
+                    placeholder="Clause title (e.g. Payment terms)"
+                    className="flex-1"
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setClauses((prev) => prev.filter((_, i) => i !== index))}
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </div>
+                <Textarea
+                  rows={2}
+                  value={clause.body}
+                  onChange={(event) =>
+                    setClauses((prev) =>
+                      prev.map((row, i) => (i === index ? { ...row, body: event.target.value } : row)),
+                    )
+                  }
+                  placeholder="Clause text…"
+                />
+              </div>
+            ))}
+            {clauses.length === 0 && (
+              <p className="text-body-sm text-tertiary">No clauses yet — add one above.</p>
+            )}
+          </div>
+        </div>
 
         {error && <p className="text-body-sm text-danger">{error}</p>}
 

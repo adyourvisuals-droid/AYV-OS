@@ -83,13 +83,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-canvas">
-      <div className="hidden md:block">
+    <div className="flex h-screen overflow-hidden bg-canvas print:h-auto print:overflow-visible">
+      <div className="hidden md:block print:hidden">
         <Sidebar collapsed={collapsed} />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="glass sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-subtle px-4">
+      <div className="flex min-w-0 flex-1 flex-col print:block">
+        <header className="glass sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-subtle px-4 print:hidden">
           <Button
             variant="ghost"
             size="icon"
@@ -146,7 +146,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto print:overflow-visible">{children}</main>
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

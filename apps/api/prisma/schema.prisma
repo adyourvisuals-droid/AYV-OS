@@ -321,6 +321,14 @@ model Organization {
   // Commercial
   gstNumber     String?
   panNumber     String?
+
+  // Bank details — printed on invoices/quotations/contracts for payment
+  bankName          String?
+  bankAccountName   String?
+  bankAccountNumber String?
+  bankIfscCode      String?
+  bankUpiId         String?
+
   currency      String  @default("INR")
   timezone      String  @default("Asia/Kolkata")
   locale        String  @default("en-IN")

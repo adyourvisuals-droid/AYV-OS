@@ -1,7 +1,22 @@
 import type { Prisma } from '../../../generated/prisma';
 
 export const INVOICE_INCLUDE = {
-  client: { select: { id: true, name: true, stateCode: true } },
+  client: {
+    select: {
+      id: true,
+      name: true,
+      legalName: true,
+      email: true,
+      phone: true,
+      addressLine1: true,
+      city: true,
+      state: true,
+      stateCode: true,
+      country: true,
+      postalCode: true,
+      gstNumber: true,
+    },
+  },
   items: true,
   payments: { orderBy: { paidAt: 'desc' } },
 } satisfies Prisma.InvoiceInclude;

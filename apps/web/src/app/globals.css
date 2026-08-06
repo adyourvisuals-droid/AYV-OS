@@ -174,3 +174,19 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Printable documents (invoices/quotations/contracts) render on a plain white page. */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  .print-hidden {
+    display: none !important;
+  }
+}

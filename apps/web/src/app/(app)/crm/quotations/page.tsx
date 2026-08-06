@@ -122,7 +122,14 @@ export default function QuotationsPage() {
                 <tbody className="divide-y divide-subtle">
                   {quotations.map((quotation) => (
                     <tr key={quotation.id} className="transition-colors hover:bg-sunken/60">
-                      <td className="px-4 py-3 text-body-sm font-medium text-primary">{quotation.number}</td>
+                      <td className="px-4 py-3">
+                        <Link
+                          href={`/crm/quotations/${quotation.id}`}
+                          className="metric text-body-sm font-medium text-primary hover:text-brand-600"
+                        >
+                          {quotation.number}
+                        </Link>
+                      </td>
                       <td className="px-4 py-3 text-body-sm text-secondary">
                         {quotation.lead ? (
                           <Link href={`/crm/leads/${quotation.lead.id}`} className="hover:text-brand-600 hover:underline">

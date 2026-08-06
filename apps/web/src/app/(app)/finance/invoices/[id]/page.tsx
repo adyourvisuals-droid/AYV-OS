@@ -7,6 +7,7 @@ import { ArrowLeft } from 'lucide-react';
 
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
+import { DocumentBankDetails, DocumentLetterhead, DocumentPage, PrintButton } from '@/components/features/document-view';
 import {
   Badge,
   Button,
@@ -43,11 +44,26 @@ interface Payment {
   note: string | null;
 }
 
+interface InvoiceClient {
+  id: string;
+  name: string;
+  legalName: string | null;
+  email: string | null;
+  phone: string | null;
+  addressLine1: string | null;
+  city: string | null;
+  state: string | null;
+  stateCode: string | null;
+  country: string | null;
+  postalCode: string | null;
+  gstNumber: string | null;
+}
+
 interface Invoice {
   id: string;
   number: string;
   status: string;
-  client: { id: string; name: string; stateCode: string | null } | null;
+  client: InvoiceClient | null;
   issueDate: string;
   dueDate: string;
   subtotal: number;
@@ -130,7 +146,7 @@ export default function InvoiceDetailPage() {
       <PageHeader
         title={invoice.number}
         subtitle={
-          <span className="flex flex-wrap items-center gap-2">
+          <span className="flex flex-wrap items-center gap-2 print-hidden">
             <Link
               href="/finance"
               className="inline-flex items-center gap-1 text-brand-600 hover:underline"
@@ -143,10 +159,11 @@ export default function InvoiceDetailPage() {
           </span>
         }
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 print-hidden">
             <Badge tone={invoice.isOverdue ? 'danger' : INVOICE_TONE[invoice.status] ?? 'neutral'}>
               {invoice.isOverdue ? 'Overdue' : titleCase(invoice.status)}
             </Badge>
+            <PrintButton />
             {invoice.status === 'DRAFT' && canUpdate && (
               <Button variant="secondary" size="sm" onClick={() => void markSent()}>
                 Mark sent
@@ -162,32 +179,61 @@ export default function InvoiceDetailPage() {
       />
 
       <div className="grid grid-cols-1 gap-4 p-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Line items</CardTitle>
-          </CardHeader>
-          <CardBody className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-left">
+        <div className="lg:col-span-2">
+          <DocumentPage>
+            <DocumentLetterhead />
+
+            <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-overline uppercase text-tertiary">Tax invoice</p>
+                <p className="text-heading-md font-semibold text-primary">{invoice.number}</p>
+              </div>
+              <div className="text-right text-body-sm text-secondary">
+                <p>Issued: {formatDate(invoice.issueDate, 'long')}</p>
+                <p>Due: {formatDate(invoice.dueDate, 'long')}</p>
+              </div>
+            </div>
+
+            {invoice.client && (
+              <div className="mt-4">
+                <p className="text-overline uppercase text-tertiary">Bill to</p>
+                <p className="text-body-md font-medium text-primary">
+                  {invoice.client.legalName || invoice.client.name}
+                </p>
+                {invoice.client.addressLine1 && (
+                  <p className="text-body-sm text-secondary">
+                    {[invoice.client.addressLine1, invoice.client.city, invoice.client.state, invoice.client.postalCode]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </p>
+                )}
+                {invoice.client.gstNumber && (
+                  <p className="text-body-sm text-secondary">GSTIN: {invoice.client.gstNumber}</p>
+                )}
+              </div>
+            )}
+
+            <div className="mt-6 overflow-x-auto">
+              <table className="w-full min-w-[520px] text-left">
                 <thead>
                   <tr className="border-b border-subtle text-overline uppercase text-tertiary">
-                    <th className="px-5 py-2.5 font-semibold">Description</th>
-                    <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
-                    <th className="px-5 py-2.5 text-right font-semibold">Unit price</th>
-                    <th className="px-5 py-2.5 text-right font-semibold">Amount</th>
+                    <th className="py-2 pr-2 font-semibold">Description</th>
+                    <th className="py-2 pr-2 text-right font-semibold">Qty</th>
+                    <th className="py-2 pr-2 text-right font-semibold">Unit price</th>
+                    <th className="py-2 text-right font-semibold">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-subtle">
                   {invoice.items.map((item) => (
                     <tr key={item.id}>
-                      <td className="px-5 py-3 text-body-sm text-primary">{item.description}</td>
-                      <td className="metric px-5 py-3 text-right text-body-sm text-secondary">
+                      <td className="py-3 pr-2 text-body-sm text-primary">{item.description}</td>
+                      <td className="metric py-3 pr-2 text-right text-body-sm text-secondary">
                         {item.quantity}
                       </td>
-                      <td className="metric px-5 py-3 text-right text-body-sm text-secondary">
+                      <td className="metric py-3 pr-2 text-right text-body-sm text-secondary">
                         {formatCurrency(item.unitPrice)}
                       </td>
-                      <td className="metric px-5 py-3 text-right text-body-sm font-medium text-primary">
+                      <td className="metric py-3 text-right text-body-sm font-medium text-primary">
                         {formatCurrency(item.amount)}
                       </td>
                     </tr>
@@ -196,7 +242,7 @@ export default function InvoiceDetailPage() {
               </table>
             </div>
 
-            <div className="space-y-1.5 border-t border-subtle px-5 py-4">
+            <div className="ml-auto mt-4 max-w-xs space-y-1.5">
               {[
                 { label: 'Subtotal', value: invoice.subtotal },
                 ...(invoice.cgst > 0 ? [{ label: 'CGST', value: invoice.cgst }] : []),
@@ -220,15 +266,25 @@ export default function InvoiceDetailPage() {
               )}
               {invoice.balance > 0 && (
                 <div className="flex items-center justify-between text-body-sm font-medium">
-                  <span className="text-secondary">Balance</span>
+                  <span className="text-secondary">Balance due</span>
                   <span className="metric text-danger">{formatCurrency(invoice.balance)}</span>
                 </div>
               )}
             </div>
-          </CardBody>
-        </Card>
 
-        <div className="space-y-4">
+            <div className="mt-8 space-y-4 border-t border-subtle pt-4">
+              <DocumentBankDetails />
+              {invoice.notes && (
+                <div>
+                  <p className="mb-1 text-overline uppercase text-tertiary">Notes</p>
+                  <p className="whitespace-pre-wrap text-body-sm text-secondary">{invoice.notes}</p>
+                </div>
+              )}
+            </div>
+          </DocumentPage>
+        </div>
+
+        <div className="space-y-4 print-hidden">
           <Card>
             <CardHeader>
               <CardTitle>Payments</CardTitle>
@@ -254,17 +310,6 @@ export default function InvoiceDetailPage() {
               )}
             </CardBody>
           </Card>
-
-          {invoice.notes && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Notes</CardTitle>
-              </CardHeader>
-              <CardBody>
-                <p className="text-body-sm text-secondary">{invoice.notes}</p>
-              </CardBody>
-            </Card>
-          )}
         </div>
       </div>
 
