@@ -7,6 +7,8 @@ import { ArrowLeft } from 'lucide-react';
 
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
+import { ClientAssetsCard } from '@/components/features/client-assets-card';
+import { ClientCredentialsCard } from '@/components/features/client-credentials-card';
 import { ContractModal, type ContractForEdit } from '@/components/features/contract-modal';
 import {
   Avatar,
@@ -423,6 +425,9 @@ export default function ClientDetailPage() {
               </CardBody>
             </Card>
           )}
+
+          {can(PERMISSIONS.CREDENTIAL_READ) && <ClientCredentialsCard clientId={client.id} />}
+          {can(PERMISSIONS.ASSET_READ) && <ClientAssetsCard clientId={client.id} />}
 
           {fieldDefs.length > 0 && (
             <CustomFieldsCard

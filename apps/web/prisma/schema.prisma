@@ -382,6 +382,7 @@ model Organization {
   leaves             Leave[]
   socialPosts        SocialPost[]
   shoots             Shoot[]
+  clientCredentials  ClientCredential[]
   tickets            Ticket[]
   knowledgeArticles  KnowledgeArticle[]
   integrations       Integration[]
@@ -463,6 +464,7 @@ model User {
   assets          Asset[]
   socialPosts     SocialPost[]      @relation("PostAuthor")
   shootsCreated   Shoot[]           @relation("ShootCreatedBy")
+  credentialsAdded ClientCredential[] @relation("CredentialCreatedBy")
   tickets         Ticket[]          @relation("TicketAssignee")
 
   @@unique([organizationId, email])
@@ -874,6 +876,7 @@ model Client {
   tickets         Ticket[]
   socialPosts     SocialPost[]
   shoots          Shoot[]
+  credentials     ClientCredential[]
   creativeBriefs  CreativeBrief[]
 
   @@index([organizationId, deletedAt])
@@ -1866,6 +1869,37 @@ model Shoot {
 
   @@index([organizationId, scheduledAt])
   @@index([clientId])
+}
+
+/// A client's third-party login (social account, ad account, hosting,
+/// domain registrar, CMS, ...). The secret is never stored in plaintext —
+/// see lib/server/crypto.ts — and is only decrypted on an explicit reveal
+/// request, never returned as part of a list.
+model ClientCredential {
+  id             String @id @default(cuid())
+  organizationId String
+  clientId       String
+
+  service  String
+  category String?
+  loginUrl String?
+  username String?
+
+  /// AES-256-GCM ciphertext, "iv:authTag:ciphertext" (all base64).
+  secretCipher String
+  notes        String?
+
+  createdById String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("CredentialCreatedBy", fields: [createdById], references: [id])
+
+  @@index([organizationId, clientId])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

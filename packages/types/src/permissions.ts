@@ -140,6 +140,8 @@ export const PERMISSIONS = {
   CAMPAIGN_MANAGE: 'social:campaign:manage',
   SHOOT_READ: 'creative:shoot:read',
   SHOOT_MANAGE: 'creative:shoot:manage',
+  CREDENTIAL_READ: 'client:credential:read',
+  CREDENTIAL_MANAGE: 'client:credential:manage',
 
   // ─── AI ──────────────────────────────────────────────────────────────────
   AI_USE: 'ai:agent:use',
