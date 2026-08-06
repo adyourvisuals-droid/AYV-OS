@@ -3,13 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Bell, LogOut, Moon, PanelLeft, Search, Sun } from 'lucide-react';
+import { LogOut, Moon, PanelLeft, Search, Sun } from 'lucide-react';
 
 import { Button, Kbd } from '@/components/ui';
 import { useAuth } from '@/lib/auth-context';
-import { api } from '@/lib/api';
 
 import { CommandPalette } from './command-palette';
+import { NotificationCenter } from './notification-center';
 import { Sidebar } from './sidebar';
 
 const SIDEBAR_KEY = 'ayv.sidebarCollapsed';
@@ -21,7 +21,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const [collapsed, setCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [unread, setUnread] = useState(0);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -56,23 +55,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const load = async () => {
-      try {
-        const result = await api.getWithMeta<unknown[]>('/notifications?limit=1&unread=true');
-        setUnread(Number(result.meta.unread ?? 0));
-      } catch {
-        // A failing badge count must never break the shell.
-      }
-    };
-
-    void load();
-    const interval = setInterval(load, 60_000);
-    return () => clearInterval(interval);
-  }, [user]);
 
   if (loading || !user) {
     return (
@@ -116,14 +98,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
 
           <div className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="icon" aria-label="Notifications" className="relative">
-              <Bell className="h-4 w-4" aria-hidden />
-              {unread > 0 && (
-                <span className="absolute right-1.5 top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white">
-                  {unread > 9 ? '9+' : unread}
-                </span>
-              )}
-            </Button>
+            <NotificationCenter />
 
             {mounted && (
               <Button

@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2, X } from 'lucide-react';
+import { Loader2, Lock, X } from 'lucide-react';
 import {
   forwardRef,
   useEffect,
@@ -281,6 +281,29 @@ export function EmptyState({
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  // A permission denial is not a failure — retrying never helps, and a red
+  // "Something went wrong" reads like the app broke. Reached only by direct
+  // URL (nav and the command palette are permission-filtered), so it stays
+  // calm and offers a way back rather than a retry.
+  const isAccessDenied = /permission|not authori[sz]ed|forbidden/i.test(message);
+
+  if (isAccessDenied) {
+    return (
+      <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-sunken text-tertiary">
+          <Lock className="h-5 w-5" aria-hidden />
+        </div>
+        <p className="text-heading-sm text-primary">You don&apos;t have access to this</p>
+        <p className="mt-1 max-w-sm text-body-sm text-secondary">
+          Ask an administrator if you think you should be able to see this page.
+        </p>
+        <Button variant="secondary" size="sm" className="mt-5" onClick={() => (window.location.href = '/dashboard')}>
+          Back to dashboard
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
       <p className="text-heading-sm text-danger">Something went wrong</p>
