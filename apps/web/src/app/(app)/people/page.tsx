@@ -97,12 +97,18 @@ function formatMinutes(minutes: number | null): string {
   return `${hours}h ${rest}m`;
 }
 
+function formatTime(value: string | null): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+
 export default function PeoplePage() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const [tab, setTab] = useState<'team' | 'attendance' | 'leave'>('team');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [todayRecord, setTodayRecord] = useState<Attendance | null>(null);
   const [leaves, setLeaves] = useState<Leave[]>([]);
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
 
@@ -116,14 +122,20 @@ export default function PeoplePage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [employeeData, attendanceData, leaveData, balanceData] = await Promise.all([
+      // `todayRecord` comes from a dedicated endpoint, not from matching the
+      // list client-side: the server owns which calendar day "today" is (in
+      // the org timezone), so the check-in/out state never depends on a
+      // timezone-fragile date comparison in the browser.
+      const [employeeData, attendanceData, todayData, leaveData, balanceData] = await Promise.all([
         api.get<Employee[]>('/people/employees?limit=100'),
         api.get<Attendance[]>('/people/attendance?limit=100'),
+        api.get<Attendance | null>('/people/attendance/today'),
         api.get<Leave[]>('/people/leave?limit=100'),
         api.get<LeaveBalance[]>('/people/leave/balances'),
       ]);
       setEmployees(employeeData);
       setAttendance(attendanceData);
+      setTodayRecord(todayData);
       setLeaves(leaveData);
       setBalances(balanceData);
     } catch (caught) {
@@ -137,14 +149,11 @@ export default function PeoplePage() {
     void load();
   }, [load]);
 
-  const todayRecord = attendance.find(
-    (row) => row.user.id === user?.id && new Date(row.date).toDateString() === new Date().toDateString(),
-  );
-
   const checkIn = async () => {
     setChecking(true);
     try {
-      await api.post('/people/attendance/checkin');
+      const record = await api.post<Attendance>('/people/attendance/checkin');
+      setTodayRecord(record);
       await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not check in');
@@ -156,7 +165,8 @@ export default function PeoplePage() {
   const checkOut = async () => {
     setChecking(true);
     try {
-      await api.post('/people/attendance/checkout');
+      const record = await api.post<Attendance>('/people/attendance/checkout');
+      setTodayRecord(record);
       await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not check out');
@@ -251,8 +261,8 @@ export default function PeoplePage() {
                   <p className="text-overline uppercase text-tertiary">Today</p>
                   {todayRecord?.checkInAt ? (
                     <p className="mt-1 text-body-sm text-secondary">
-                      Checked in {formatDate(todayRecord.checkInAt)}
-                      {todayRecord.checkOutAt && ` · checked out ${formatDate(todayRecord.checkOutAt)}`}
+                      Checked in {formatTime(todayRecord.checkInAt)}
+                      {todayRecord.checkOutAt && ` · checked out ${formatTime(todayRecord.checkOutAt)}`}
                     </p>
                   ) : (
                     <p className="mt-1 text-body-sm text-secondary">Not checked in yet</p>

@@ -1,9 +1,9 @@
 import type { NextRequest } from 'next/server';
 import type { Prisma } from '../../../../../generated/prisma';
-import { startOfMonth, endOfMonth } from 'date-fns';
 
 import { PERMISSIONS } from '@ayv/types';
 
+import { attendanceMonthRange } from '@/lib/server/attendance-day';
 import { prisma } from '@/lib/server/db';
 import { ATTENDANCE_INCLUDE, attendanceVisibilityFilter, presentAttendance } from '@/lib/server/hrm-present';
 import { successResponse } from '@/lib/server/http';
@@ -18,10 +18,16 @@ export async function GET(req: NextRequest) {
     const query = new ListQuery(req.nextUrl.searchParams);
     const userId = query.get('userId');
 
+    const organization = await prisma.organization.findFirst({
+      where: { id: principal.organizationId },
+      select: { timezone: true },
+    });
+    const { start, end } = attendanceMonthRange(organization?.timezone ?? 'Asia/Kolkata');
+
     const where: Prisma.AttendanceWhereInput = {
       ...attendanceVisibilityFilter(principal),
       ...(userId ? { userId } : {}),
-      date: { gte: startOfMonth(new Date()), lte: endOfMonth(new Date()) },
+      date: { gte: start, lte: end },
     };
 
     const rows = await prisma.attendance.findMany({
