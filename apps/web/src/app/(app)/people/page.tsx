@@ -5,6 +5,7 @@ import { CalendarClock, LogIn, LogOut, Plus, Users } from 'lucide-react';
 
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
+import { PayrollTab } from '@/components/features/payroll-tab';
 import {
   Avatar,
   Badge,
@@ -104,7 +105,7 @@ function formatTime(value: string | null): string {
 
 export default function PeoplePage() {
   const { can } = useAuth();
-  const [tab, setTab] = useState<'team' | 'attendance' | 'leave'>('team');
+  const [tab, setTab] = useState<'team' | 'attendance' | 'leave' | 'payroll'>('team');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
@@ -119,31 +120,42 @@ export default function PeoplePage() {
 
   const canApproveLeave = can(PERMISSIONS.LEAVE_APPROVE);
 
+  const canReadAttendance = can(PERMISSIONS.ATTENDANCE_READ);
+  const canReadLeave = can(PERMISSIONS.LEAVE_READ);
+
   const load = useCallback(async () => {
     setError(null);
     try {
-      // `todayRecord` comes from a dedicated endpoint, not from matching the
-      // list client-side: the server owns which calendar day "today" is (in
-      // the org timezone), so the check-in/out state never depends on a
-      // timezone-fragile date comparison in the browser.
-      const [employeeData, attendanceData, todayData, leaveData, balanceData] = await Promise.all([
-        api.get<Employee[]>('/people/employees?limit=100'),
-        api.get<Attendance[]>('/people/attendance?limit=100'),
-        api.get<Attendance | null>('/people/attendance/today'),
-        api.get<Leave[]>('/people/leave?limit=100'),
-        api.get<LeaveBalance[]>('/people/leave/balances'),
-      ]);
+      // The team directory is the core of this page. Attendance and leave are
+      // separate sections that not every role who reaches this page can read
+      // (Finance, for instance, holds EMPLOYEE_READ and PAYROLL but not
+      // ATTENDANCE_READ), so each loads independently and degrades on its own
+      // rather than a single 403 taking down the whole page. `todayRecord`
+      // comes from a dedicated endpoint so the check-in/out state never
+      // depends on a timezone-fragile date match in the browser.
+      const employeeData = await api.get<Employee[]>('/people/employees?limit=100');
       setEmployees(employeeData);
-      setAttendance(attendanceData);
-      setTodayRecord(todayData);
-      setLeaves(leaveData);
-      setBalances(balanceData);
+      setLoading(false);
+
+      void Promise.all([
+        canReadAttendance
+          ? api.get<Attendance[]>('/people/attendance?limit=100').then(setAttendance).catch(() => setAttendance([]))
+          : Promise.resolve(),
+        canReadAttendance
+          ? api.get<Attendance | null>('/people/attendance/today').then(setTodayRecord).catch(() => setTodayRecord(null))
+          : Promise.resolve(),
+        canReadLeave
+          ? api.get<Leave[]>('/people/leave?limit=100').then(setLeaves).catch(() => setLeaves([]))
+          : Promise.resolve(),
+        canReadLeave
+          ? api.get<LeaveBalance[]>('/people/leave/balances').then(setBalances).catch(() => setBalances([]))
+          : Promise.resolve(),
+      ]);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not load people data');
-    } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canReadAttendance, canReadLeave]);
 
   useEffect(() => {
     void load();
@@ -199,13 +211,22 @@ export default function PeoplePage() {
 
   const pendingLeaves = leaves.filter((leave) => leave.status === 'PENDING');
 
+  // Fall back to Team if the selected tab isn't one this role can see.
+  const tabVisible: Record<typeof tab, boolean> = {
+    team: true,
+    attendance: canReadAttendance,
+    leave: canReadLeave,
+    payroll: can(PERMISSIONS.PAYROLL_READ),
+  };
+  const activeTab = tabVisible[tab] ? tab : 'team';
+
   return (
     <>
       <PageHeader
         title="People"
         subtitle={`${employees.length} team member(s)${pendingLeaves.length > 0 ? ` · ${pendingLeaves.length} leave request(s) pending` : ''}`}
         actions={
-          tab === 'leave' ? (
+          activeTab === 'leave' ? (
             <Button size="sm" onClick={() => setShowRequestLeave(true)}>
               <Plus className="h-4 w-4" aria-hidden />
               Request leave
@@ -217,17 +238,20 @@ export default function PeoplePage() {
       <Tabs
         tabs={[
           { key: 'team', label: `Team (${employees.length})` },
-          { key: 'attendance', label: 'Attendance' },
-          { key: 'leave', label: `Leave${pendingLeaves.length > 0 ? ` (${pendingLeaves.length})` : ''}` },
+          ...(canReadAttendance ? [{ key: 'attendance', label: 'Attendance' }] : []),
+          ...(canReadLeave
+            ? [{ key: 'leave', label: `Leave${pendingLeaves.length > 0 ? ` (${pendingLeaves.length})` : ''}` }]
+            : []),
+          ...(can(PERMISSIONS.PAYROLL_READ) ? [{ key: 'payroll', label: 'Payroll' }] : []),
         ]}
-        active={tab}
+        active={activeTab}
         onChange={(key) => setTab(key as typeof tab)}
       />
 
       <div className="p-6">
         {error && <p className="mb-4 text-body-sm text-danger">{error}</p>}
 
-        {tab === 'team' &&
+        {activeTab === 'team' &&
           (employees.length === 0 ? (
             <EmptyState icon={<Users className="h-6 w-6" aria-hidden />} title="No team members yet" />
           ) : (
@@ -253,7 +277,7 @@ export default function PeoplePage() {
             </div>
           ))}
 
-        {tab === 'attendance' && (
+        {activeTab === 'attendance' && (
           <div className="space-y-4">
             <Card className="p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -346,7 +370,7 @@ export default function PeoplePage() {
           </div>
         )}
 
-        {tab === 'leave' && (
+        {activeTab === 'leave' && (
           <div className="space-y-4">
             {balances.length > 0 && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -421,6 +445,8 @@ export default function PeoplePage() {
             )}
           </div>
         )}
+
+        {activeTab === 'payroll' && <PayrollTab />}
       </div>
 
       <RequestLeaveModal
