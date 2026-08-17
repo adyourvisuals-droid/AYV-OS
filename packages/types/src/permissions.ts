@@ -57,6 +57,12 @@ export const PERMISSIONS = {
   CONTRACT_CREATE: 'crm:contract:create',
   CONTRACT_APPROVE: 'crm:contract:approve',
 
+  PACKAGE_READ: 'agency:package:read',
+  PACKAGE_MANAGE: 'agency:package:manage',
+  RETAINER_READ: 'agency:retainer:read',
+  RETAINER_MANAGE: 'agency:retainer:manage',
+  CAPI_MANAGE: 'agency:capi:manage',
+
   ACTIVITY_READ: 'crm:activity:read',
   ACTIVITY_CREATE: 'crm:activity:create',
 

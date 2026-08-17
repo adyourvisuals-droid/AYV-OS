@@ -11,9 +11,10 @@ import { AutomationsTab } from './automations-tab';
 import { CustomFieldsTab } from './custom-fields-tab';
 import { OrganizationTab } from './organization-tab';
 import { RolesTab } from './roles-tab';
+import { ServiceCatalogTab } from './service-catalog-tab';
 import { TeamTab } from './team-tab';
 
-type SettingsTab = 'team' | 'roles' | 'automations' | 'custom-fields' | 'organization';
+type SettingsTab = 'team' | 'roles' | 'automations' | 'custom-fields' | 'organization' | 'catalog';
 
 export default function SettingsPage() {
   const { canAny } = useAuth();
@@ -23,6 +24,7 @@ export default function SettingsPage() {
     { key: 'team', label: 'Team & hierarchy', visible: canAny(PERMISSIONS.USER_READ) },
     { key: 'roles', label: 'Roles & permissions', visible: canAny(PERMISSIONS.ROLE_READ) },
     { key: 'automations', label: 'Automations', visible: canAny(PERMISSIONS.AUTOMATION_READ) },
+    { key: 'catalog', label: 'Service catalog', visible: canAny(PERMISSIONS.PACKAGE_READ) },
     {
       key: 'custom-fields',
       label: 'Custom fields',
@@ -77,6 +79,7 @@ export default function SettingsPage() {
         {activeTab === 'roles' && <RolesTab />}
         {activeTab === 'automations' && <AutomationsTab />}
         {activeTab === 'custom-fields' && <CustomFieldsTab />}
+        {activeTab === 'catalog' && <ServiceCatalogTab />}
       </div>
     </>
   );

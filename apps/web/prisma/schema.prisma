@@ -384,6 +384,7 @@ model Organization {
   shoots             Shoot[]
   clientCredentials  ClientCredential[]
   ledgerEntries      DailyLedgerEntry[]
+  servicePackages    ServicePackage[]
   tickets            Ticket[]
   knowledgeArticles  KnowledgeArticle[]
   integrations       Integration[]
@@ -1439,6 +1440,42 @@ model DailyLedgerEntry {
   createdBy    User?        @relation("LedgerEntryCreatedBy", fields: [createdById], references: [id])
 
   @@index([organizationId, date])
+}
+
+
+enum BillingCycle {
+  ONE_TIME
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+/// A standardised agency offering (e.g. "Social Media — Growth") with a
+/// price and the deliverables it includes per cycle. Quotations and retainers
+/// are built from these instead of retyping line items every time.
+model ServicePackage {
+  id             String @id @default(cuid())
+  organizationId String
+
+  name        String
+  category    ServiceType?
+  description String?
+  price       Decimal      @default(0) @db.Decimal(14, 2)
+  currency    String       @default("INR")
+  billingCycle BillingCycle @default(MONTHLY)
+
+  /// Included deliverables per cycle: [{ label, quantity }]. JSON rather than
+  /// a child table — a package's line-up is authored and edited as a whole.
+  deliverables Json    @default("[]")
+  isActive     Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, deletedAt])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
