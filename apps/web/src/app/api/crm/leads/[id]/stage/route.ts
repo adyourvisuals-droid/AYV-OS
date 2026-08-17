@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 
 import { LeadStatus, PERMISSIONS } from '@ayv/types';
 
+import { dispatchLeadWonConversion } from '@/lib/server/capi-service';
 import { prisma } from '@/lib/server/db';
 import { LEAD_INCLUDE, presentLead } from '@/lib/server/crm-present';
 import { errorResponse, successResponse } from '@/lib/server/http';
@@ -115,6 +116,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     ]);
 
     await rescore(id);
+
+    // A won lead that's already tied to a client with Meta wiring reports the
+    // conversion back to Meta — closing the loop on the ad that sourced it.
+    if (status === LeadStatus.WON && updated.convertedClientId) {
+      await dispatchLeadWonConversion({
+        id: updated.id,
+        organizationId: updated.organizationId,
+        convertedClientId: updated.convertedClientId,
+        email: updated.email,
+        phone: updated.phone,
+        contactName: updated.contactName,
+        city: updated.city,
+        estimatedValue: updated.estimatedValue,
+        currency: updated.currency,
+        sourceMeta: updated.sourceMeta,
+        createdById: principal.userId,
+      });
+    }
 
     return successResponse(presentLead(updated));
   });

@@ -386,6 +386,8 @@ model Organization {
   ledgerEntries      DailyLedgerEntry[]
   servicePackages    ServicePackage[]
   retainers          Retainer[]
+  metaCapiConfigs    MetaCapiConfig[]
+  capiEvents         CapiEvent[]
   tickets            Ticket[]
   knowledgeArticles  KnowledgeArticle[]
   integrations       Integration[]
@@ -882,6 +884,8 @@ model Client {
   shoots          Shoot[]
   credentials     ClientCredential[]
   retainers       Retainer[]
+  metaCapiConfig  MetaCapiConfig?
+  capiEvents      CapiEvent[]
   creativeBriefs  CreativeBrief[]
 
   @@index([organizationId, deletedAt])
@@ -1542,6 +1546,84 @@ model RetainerDeliverable {
 
   @@index([retainerId, year, month])
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  META CONVERSIONS API
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Which server-side event the dispatcher can produce.
+enum CapiEventStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+  TEST
+}
+
+/// Per-client Meta Conversions API wiring: the pixel/dataset to report to and
+/// the access token to authenticate with. The token is stored encrypted at
+/// rest (AES-256-GCM, same vault as client credentials) and never returned to
+/// the client in plaintext.
+model MetaCapiConfig {
+  id             String @id @default(cuid())
+  organizationId String
+  clientId       String @unique
+
+  pixelId       String
+  datasetId     String?
+  /// AES-256-GCM ciphertext, "iv:authTag:ciphertext" (all base64).
+  accessTokenCipher String
+  /// Meta's test_event_code — routes events to the Events Manager test tab.
+  testEventCode String?
+  /// The default standard event fired on a won lead (e.g. "Lead", "Purchase").
+  defaultEventName String  @default("Lead")
+  isActive      Boolean @default(true)
+
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  events       CapiEvent[]
+
+  @@index([organizationId])
+}
+
+/// The audit trail for every conversion dispatch — sent, skipped (no config),
+/// failed (Meta rejected or the network was down), or a manual test. Stores
+/// the exact request we built and Meta's response so a failed conversion can
+/// be diagnosed and replayed.
+model CapiEvent {
+  id             String @id @default(cuid())
+  organizationId String
+  clientId       String
+  configId       String?
+  leadId         String?
+
+  eventName String
+  status    CapiEventStatus @default(PENDING)
+  testMode  Boolean         @default(false)
+  /// The event_id sent to Meta for deduplication against the browser pixel.
+  eventId   String
+
+  requestPayload  Json
+  responsePayload Json?
+  errorMessage    String?
+  fbTraceId       String?
+
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  config       MetaCapiConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, clientId, createdAt])
+  @@index([leadId])
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  HRM
 // ═══════════════════════════════════════════════════════════════════════════

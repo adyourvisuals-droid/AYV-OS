@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 
 import { LeadStatus, PERMISSIONS } from '@ayv/types';
 
+import { dispatchLeadWonConversion } from '@/lib/server/capi-service';
 import { prisma } from '@/lib/server/db';
 import { CLIENT_INCLUDE, presentClient } from '@/lib/server/clients-present';
 import { errorResponse, successResponse } from '@/lib/server/http';
@@ -92,6 +93,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       });
 
       return created;
+    });
+
+    // If this client was pre-wired for Meta, report the conversion now that
+    // the lead is won and linked. Unconfigured clients are a silent no-op.
+    await dispatchLeadWonConversion({
+      id: lead.id,
+      organizationId: principal.organizationId,
+      convertedClientId: client.id,
+      email: lead.email,
+      phone: lead.phone,
+      contactName: lead.contactName,
+      city: lead.city,
+      estimatedValue: lead.estimatedValue,
+      currency: lead.currency,
+      sourceMeta: lead.sourceMeta,
+      createdById: principal.userId,
     });
 
     const withManager = await prisma.client.findFirstOrThrow({
