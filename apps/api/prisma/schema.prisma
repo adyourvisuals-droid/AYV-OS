@@ -371,6 +371,7 @@ model Organization {
   clientCredentials  ClientCredential[]
   ledgerEntries      DailyLedgerEntry[]
   servicePackages    ServicePackage[]
+  retainers          Retainer[]
   tickets            Ticket[]
   knowledgeArticles  KnowledgeArticle[]
   integrations       Integration[]
@@ -866,6 +867,7 @@ model Client {
   socialPosts     SocialPost[]
   shoots          Shoot[]
   credentials     ClientCredential[]
+  retainers       Retainer[]
   creativeBriefs  CreativeBrief[]
 
   @@index([organizationId, deletedAt])
@@ -1460,10 +1462,72 @@ model ServicePackage {
   deletedAt DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  retainers    Retainer[]
 
   @@index([organizationId, deletedAt])
 }
 
+
+enum RetainerStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+/// An ongoing monthly engagement with a client — the heart of how an agency's
+/// month runs. Carries what's committed each cycle; actual delivery is tracked
+/// per month in RetainerDeliverable.
+model Retainer {
+  id             String @id @default(cuid())
+  organizationId String
+  clientId       String
+  packageId      String?
+
+  title        String
+  monthlyValue Decimal        @default(0) @db.Decimal(14, 2)
+  currency     String         @default("INR")
+  billingCycle BillingCycle   @default(MONTHLY)
+  startDate    DateTime?
+  status       RetainerStatus @default(ACTIVE)
+
+  /// Committed deliverables per cycle: [{ label, quantity }]. Seeded from the
+  /// package at creation, then owned by the retainer.
+  deliverablesTemplate Json @default("[]")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  package      ServicePackage? @relation(fields: [packageId], references: [id])
+  deliverables RetainerDeliverable[]
+
+  @@index([organizationId, status])
+  @@index([clientId])
+}
+
+/// One committed deliverable line for one client for one month: how many were
+/// promised vs how many actually went out. This is what the tracker rolls up.
+model RetainerDeliverable {
+  id         String @id @default(cuid())
+  retainerId String
+
+  month Int
+  year  Int
+
+  label     String
+  committed Int @default(0)
+  delivered Int @default(0)
+  position  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  retainer Retainer @relation(fields: [retainerId], references: [id], onDelete: Cascade)
+
+  @@index([retainerId, year, month])
+}
 // ═══════════════════════════════════════════════════════════════════════════
 //  HRM
 // ═══════════════════════════════════════════════════════════════════════════

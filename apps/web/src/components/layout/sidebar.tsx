@@ -17,6 +17,7 @@ import {
   HeartPulse,
   LayoutDashboard,
   Palette,
+  Repeat,
   Receipt,
   Settings,
   Sparkles,
@@ -80,6 +81,7 @@ const NAV: NavSection[] = [
     items: [
       { label: 'Accounts', href: '/clients', icon: Building2, permissions: [PERMISSIONS.CLIENT_READ] },
       { label: 'Health', href: '/clients/health', icon: HeartPulse, permissions: [PERMISSIONS.CLIENT_HEALTH_READ] },
+      { label: 'Retainers', href: '/agency/retainers', icon: Repeat, permissions: [PERMISSIONS.RETAINER_READ] },
     ],
   },
   {
