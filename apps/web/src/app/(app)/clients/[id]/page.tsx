@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, FileBarChart } from 'lucide-react';
 
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
@@ -190,6 +190,13 @@ export default function ClientDetailPage() {
         }
         actions={
           <div className="flex items-center gap-2">
+            <Link
+              href={`/clients/${clientId}/report`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-subtle bg-surface px-3 text-body-sm font-medium text-primary transition-colors hover:bg-sunken"
+            >
+              <FileBarChart className="h-4 w-4" aria-hidden />
+              Monthly report
+            </Link>
             <Badge tone={client.status === 'ACTIVE' ? 'success' : 'neutral'}>
               {titleCase(client.status)}
             </Badge>
