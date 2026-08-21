@@ -34,3 +34,11 @@ export function attendanceMonthRange(timezone: string, now: Date = new Date()): 
   const end = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 0));
   return { start, end };
 }
+
+/** First and last day (inclusive) of an explicit month/year, as midnight-UTC dates. */
+export function attendanceMonthRangeFor(month: number, year: number): { start: Date; end: Date } {
+  return {
+    start: new Date(Date.UTC(year, month - 1, 1)),
+    end: new Date(Date.UTC(year, month, 0)),
+  };
+}

@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarClock, LogIn, LogOut, Plus, Users } from 'lucide-react';
+import { CalendarClock, Plus, Users } from 'lucide-react';
 
 import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
+import { AttendanceTab } from '@/components/features/attendance-tab';
 import { PayrollTab } from '@/components/features/payroll-tab';
 import {
   Avatar,
@@ -43,17 +44,6 @@ interface Employee {
   manager: { id: string; name: string } | null;
 }
 
-interface Attendance {
-  id: string;
-  user: { id: string; name: string; avatarUrl: string | null };
-  date: string;
-  checkInAt: string | null;
-  checkOutAt: string | null;
-  status: string;
-  workMinutes: number | null;
-  lateMinutes: number | null;
-}
-
 interface Leave {
   id: string;
   user: { id: string; name: string; avatarUrl: string | null };
@@ -74,16 +64,6 @@ interface LeaveBalance {
   remaining: number;
 }
 
-const ATTENDANCE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
-  PRESENT: 'success',
-  LATE: 'warning',
-  ABSENT: 'danger',
-  HALF_DAY: 'warning',
-  WFH: 'info',
-  LEAVE: 'neutral',
-  HOLIDAY: 'neutral',
-};
-
 const LEAVE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
   PENDING: 'warning',
   APPROVED: 'success',
@@ -91,31 +71,16 @@ const LEAVE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 
   CANCELLED: 'neutral',
 };
 
-function formatMinutes(minutes: number | null): string {
-  if (minutes === null) return '—';
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return `${hours}h ${rest}m`;
-}
-
-function formatTime(value: string | null): string {
-  if (!value) return '—';
-  return new Date(value).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-}
-
 export default function PeoplePage() {
   const { can } = useAuth();
   const [tab, setTab] = useState<'team' | 'attendance' | 'leave' | 'payroll'>('team');
 
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [attendance, setAttendance] = useState<Attendance[]>([]);
-  const [todayRecord, setTodayRecord] = useState<Attendance | null>(null);
   const [leaves, setLeaves] = useState<Leave[]>([]);
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
   const [showRequestLeave, setShowRequestLeave] = useState(false);
 
   const canApproveLeave = can(PERMISSIONS.LEAVE_APPROVE);
@@ -138,12 +103,6 @@ export default function PeoplePage() {
       setLoading(false);
 
       void Promise.all([
-        canReadAttendance
-          ? api.get<Attendance[]>('/people/attendance?limit=100').then(setAttendance).catch(() => setAttendance([]))
-          : Promise.resolve(),
-        canReadAttendance
-          ? api.get<Attendance | null>('/people/attendance/today').then(setTodayRecord).catch(() => setTodayRecord(null))
-          : Promise.resolve(),
         canReadLeave
           ? api.get<Leave[]>('/people/leave?limit=100').then(setLeaves).catch(() => setLeaves([]))
           : Promise.resolve(),
@@ -155,37 +114,11 @@ export default function PeoplePage() {
       setError(caught instanceof ApiError ? caught.message : 'Could not load people data');
       setLoading(false);
     }
-  }, [canReadAttendance, canReadLeave]);
+  }, [canReadLeave]);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  const checkIn = async () => {
-    setChecking(true);
-    try {
-      const record = await api.post<Attendance>('/people/attendance/checkin');
-      setTodayRecord(record);
-      await load();
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Could not check in');
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  const checkOut = async () => {
-    setChecking(true);
-    try {
-      const record = await api.post<Attendance>('/people/attendance/checkout');
-      setTodayRecord(record);
-      await load();
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Could not check out');
-    } finally {
-      setChecking(false);
-    }
-  };
 
   const decideLeave = async (id: string, approved: boolean) => {
     try {
@@ -278,96 +211,7 @@ export default function PeoplePage() {
           ))}
 
         {activeTab === 'attendance' && (
-          <div className="space-y-4">
-            <Card className="p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-overline uppercase text-tertiary">Today</p>
-                  {todayRecord?.checkInAt ? (
-                    <p className="mt-1 text-body-sm text-secondary">
-                      Checked in {formatTime(todayRecord.checkInAt)}
-                      {todayRecord.checkOutAt && ` · checked out ${formatTime(todayRecord.checkOutAt)}`}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-body-sm text-secondary">Not checked in yet</p>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  {!todayRecord?.checkInAt && (
-                    <Button size="sm" onClick={() => void checkIn()} loading={checking}>
-                      <LogIn className="h-4 w-4" aria-hidden />
-                      Check in
-                    </Button>
-                  )}
-                  {todayRecord?.checkInAt && !todayRecord?.checkOutAt && (
-                    <Button size="sm" variant="secondary" onClick={() => void checkOut()} loading={checking}>
-                      <LogOut className="h-4 w-4" aria-hidden />
-                      Check out
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
-
-            {attendance.length === 0 ? (
-              <EmptyState
-                icon={<CalendarClock className="h-6 w-6" aria-hidden />}
-                title="No attendance recorded this month"
-              />
-            ) : (
-              <Card className="overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-left">
-                    <thead>
-                      <tr className="border-b border-subtle text-overline uppercase text-tertiary">
-                        <th className="px-4 py-2.5 font-semibold">Person</th>
-                        <th className="px-4 py-2.5 font-semibold">Date</th>
-                        <th className="px-4 py-2.5 font-semibold">Status</th>
-                        <th className="px-4 py-2.5 font-semibold">Check in</th>
-                        <th className="px-4 py-2.5 font-semibold">Check out</th>
-                        <th className="px-4 py-2.5 text-right font-semibold">Hours</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-subtle">
-                      {attendance.map((row) => (
-                        <tr key={row.id} className="transition-colors hover:bg-sunken/60">
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <Avatar name={row.user.name} src={row.user.avatarUrl} size="xs" />
-                              <span className="text-body-sm text-secondary">{row.user.name}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-body-sm text-secondary">{formatDate(row.date)}</td>
-                          <td className="px-4 py-3">
-                            <Badge tone={ATTENDANCE_TONE[row.status] ?? 'neutral'}>{titleCase(row.status)}</Badge>
-                          </td>
-                          <td className="px-4 py-3 text-body-sm text-secondary">
-                            {row.checkInAt
-                              ? new Date(row.checkInAt).toLocaleTimeString('en-IN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })
-                              : '—'}
-                          </td>
-                          <td className="px-4 py-3 text-body-sm text-secondary">
-                            {row.checkOutAt
-                              ? new Date(row.checkOutAt).toLocaleTimeString('en-IN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })
-                              : '—'}
-                          </td>
-                          <td className="metric px-4 py-3 text-right text-body-sm text-secondary">
-                            {formatMinutes(row.workMinutes)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            )}
-          </div>
+          <AttendanceTab canManage={can(PERMISSIONS.ATTENDANCE_MANAGE)} />
         )}
 
         {activeTab === 'leave' && (
