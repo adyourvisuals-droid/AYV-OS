@@ -119,6 +119,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
         P.REPORT_READ,
         P.REPORT_EXPORT,
       ),
+      ...all(P.COMM_USE, P.ANNOUNCEMENT_MANAGE),
     ],
   },
 
@@ -177,6 +178,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       ),
       ...team(P.AUDIT_READ, P.ATTENDANCE_READ, P.LEAVE_READ, P.LEAVE_APPROVE, P.EXPENSE_READ),
       ...all(P.LEAD_READ, P.PROJECT_READ, P.EMPLOYEE_READ, P.INVOICE_READ),
+      ...all(P.COMM_USE, P.ANNOUNCEMENT_MANAGE),
     ],
   },
 
@@ -236,6 +238,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
         P.DASHBOARD_READ,
       ),
       ...all(P.REPORT_READ),
+      ...all(P.COMM_USE, P.ANNOUNCEMENT_MANAGE),
     ],
   },
 
@@ -276,6 +279,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       ),
       ...all(P.LEAD_CREATE, P.ACTIVITY_CREATE, P.PIPELINE_READ, P.SOP_READ, P.KNOWLEDGE_READ),
       ...team(P.CLIENT_READ, P.PROJECT_READ),
+      ...all(P.COMM_USE),
     ],
   },
 
@@ -325,6 +329,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
         P.DASHBOARD_READ,
       ),
       ...all(P.CAMPAIGN_READ, P.LEAD_READ),
+      ...all(P.COMM_USE, P.ANNOUNCEMENT_MANAGE),
     ],
   },
 
@@ -352,6 +357,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
         P.DASHBOARD_READ,
       ),
       ...all(P.ASSET_READ, P.ASSET_CREATE, P.KNOWLEDGE_READ, P.SOP_READ, P.CLIENT_READ, P.SHOOT_READ),
+      ...all(P.COMM_USE),
     ],
   },
 
@@ -379,6 +385,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
         P.DASHBOARD_READ,
       ),
       ...all(P.ASSET_READ, P.ASSET_CREATE, P.KNOWLEDGE_READ, P.SOP_READ, P.CLIENT_READ, P.SHOOT_READ),
+      ...all(P.COMM_USE),
     ],
   },
 
@@ -404,6 +411,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
         P.DASHBOARD_READ,
       ),
       ...all(P.ASSET_READ, P.KNOWLEDGE_READ, P.SOP_READ, P.CLIENT_READ),
+      ...all(P.COMM_USE),
     ],
   },
 
@@ -441,6 +449,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       ),
       ...own(P.LEAVE_CREATE, P.EXPENSE_READ, P.EXPENSE_CREATE),
       ...team(P.DASHBOARD_READ),
+      ...all(P.COMM_USE, P.ANNOUNCEMENT_MANAGE),
     ],
   },
 
@@ -482,6 +491,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
         P.REPORT_READ,
         P.REPORT_EXPORT,
       ),
+      ...all(P.COMM_USE),
     ],
   },
 
@@ -507,6 +517,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
         P.DASHBOARD_READ,
       ),
       ...all(P.KNOWLEDGE_READ, P.SOP_READ, P.ASSET_READ),
+      ...all(P.COMM_USE),
     ],
   },
 

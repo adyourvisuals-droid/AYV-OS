@@ -16,6 +16,7 @@ import {
   Gauge,
   HeartPulse,
   LayoutDashboard,
+  MessagesSquare,
   Palette,
   Repeat,
   Receipt,
@@ -101,6 +102,7 @@ const NAV: NavSection[] = [
   {
     label: 'System',
     items: [
+      { label: 'Team chat', href: '/team', icon: MessagesSquare, permissions: [PERMISSIONS.COMM_USE] },
       { label: 'AI Center', href: '/ai', icon: Sparkles, permissions: [PERMISSIONS.AI_USE] },
       { label: 'Settings', href: '/settings', icon: Settings },
     ],

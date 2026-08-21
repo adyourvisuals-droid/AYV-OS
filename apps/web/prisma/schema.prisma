@@ -388,6 +388,8 @@ model Organization {
   retainers          Retainer[]
   metaCapiConfigs    MetaCapiConfig[]
   capiEvents         CapiEvent[]
+  conversations      Conversation[]
+  announcements      Announcement[]
   tickets            Ticket[]
   knowledgeArticles  KnowledgeArticle[]
   integrations       Integration[]
@@ -472,6 +474,10 @@ model User {
   credentialsAdded ClientCredential[] @relation("CredentialCreatedBy")
   ledgerEntriesAdded DailyLedgerEntry[] @relation("LedgerEntryCreatedBy")
   tickets         Ticket[]          @relation("TicketAssignee")
+  conversationMemberships ConversationMember[]
+  messages        Message[]
+  announcements   Announcement[]
+  announcementComments AnnouncementComment[]
 
   @@unique([organizationId, email])
   @@index([organizationId, deletedAt])
@@ -1622,6 +1628,109 @@ model CapiEvent {
 
   @@index([organizationId, clientId, createdAt])
   @@index([leadId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TEAM COMMUNICATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ConversationType {
+  CHANNEL
+  DIRECT
+}
+
+/// A channel (a named team room) or a direct 1:1 thread. Membership rows carry
+/// each participant's last-read marker, which is how unread counts are derived.
+model Conversation {
+  id             String @id @default(cuid())
+  organizationId String
+
+  type        ConversationType
+  name        String?
+  description String?
+  createdById String?
+
+  lastMessageAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      ConversationMember[]
+  messages     Message[]
+
+  @@index([organizationId, type])
+}
+
+model ConversationMember {
+  id             String @id @default(cuid())
+  conversationId String
+  userId         String
+
+  lastReadAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String @id @default(cuid())
+  conversationId String
+  authorId       String?
+
+  body String
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User?        @relation(fields: [authorId], references: [id])
+
+  @@index([conversationId, createdAt])
+}
+
+/// A company-wide announcement — the broadcast feed. Pinned ones float to the
+/// top. Comments hang off it for lightweight discussion.
+model Announcement {
+  id             String @id @default(cuid())
+  organizationId String
+  authorId       String?
+
+  title    String
+  body     String
+  isPinned Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author       User?                 @relation(fields: [authorId], references: [id])
+  comments     AnnouncementComment[]
+
+  @@index([organizationId, isPinned, createdAt])
+}
+
+model AnnouncementComment {
+  id             String @id @default(cuid())
+  announcementId String
+  authorId       String?
+
+  body String
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  author       User?        @relation(fields: [authorId], references: [id])
+
+  @@index([announcementId, createdAt])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -63,6 +63,10 @@ export const PERMISSIONS = {
   RETAINER_MANAGE: 'agency:retainer:manage',
   CAPI_MANAGE: 'agency:capi:manage',
 
+  // ─── Team communication ──────────────────────────────────────────────────
+  COMM_USE: 'comms:use',
+  ANNOUNCEMENT_MANAGE: 'comms:announcement:manage',
+
   ACTIVITY_READ: 'crm:activity:read',
   ACTIVITY_CREATE: 'crm:activity:create',
 
