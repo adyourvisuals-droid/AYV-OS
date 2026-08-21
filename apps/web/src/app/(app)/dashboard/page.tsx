@@ -15,6 +15,7 @@ import { PERMISSIONS } from '@ayv/types';
 import { PageHeader } from '@/components/layout/app-shell';
 import { MetricCard } from '@/components/features/metric-card';
 import { Badge, Card, CardBody, CardHeader, CardTitle, ErrorState, Progress, Skeleton } from '@/components/ui';
+import { AreaChart, DonutChart } from '@/components/ui/charts';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { cn, formatCurrency, formatDate, formatNumber, titleCase } from '@/lib/utils';
@@ -191,34 +192,37 @@ export default function DashboardPage() {
 // ─── Widgets ───────────────────────────────────────────────────────────────
 
 function RevenueTrend({ data }: { data: ExecutiveDashboard }) {
-  const points = data.revenue.trend;
-  const max = Math.max(...points.map((point) => point.value), 1);
+  const latest = data.revenue.trend[data.revenue.trend.length - 1]?.value ?? 0;
 
   return (
     <Card className="lg:col-span-2">
       <CardHeader className="flex items-center justify-between">
-        <CardTitle>Revenue trend</CardTitle>
-        <Badge tone="brand">
-          MRR {formatCurrency(data.mrr, { compact: true })}
-        </Badge>
+        <div>
+          <CardTitle>Revenue trend</CardTitle>
+          <p className="mt-0.5 text-caption text-tertiary">Last {data.revenue.trend.length} months</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {data.revenue.change !== null && (
+            <Badge tone={data.revenue.change >= 0 ? 'success' : 'danger'}>
+              {data.revenue.change >= 0 ? '+' : ''}
+              {data.revenue.change.toFixed(1)}%
+            </Badge>
+          )}
+          <Badge tone="brand">MRR {formatCurrency(data.mrr, { compact: true })}</Badge>
+        </div>
       </CardHeader>
       <CardBody>
-        <div className="flex h-44 items-end gap-1.5">
-          {points.map((point) => (
-            <div key={point.label} className="group flex flex-1 flex-col items-center gap-1.5">
-              <div className="relative flex w-full flex-1 items-end">
-                <div
-                  className="w-full rounded-t bg-brand-500/85 transition-all duration-300 ease-smooth group-hover:bg-brand-500"
-                  style={{ height: `${Math.max(2, (point.value / max) * 100)}%` }}
-                />
-                <span className="pointer-events-none absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-raised px-1.5 py-0.5 text-caption text-primary opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-                  {formatCurrency(point.value, { compact: true })}
-                </span>
-              </div>
-              <span className="text-caption text-tertiary">{point.label}</span>
-            </div>
-          ))}
+        <div className="mb-2 flex items-baseline gap-2">
+          <span className="metric text-display-sm tracking-tight text-primary">
+            {formatCurrency(latest, { compact: true })}
+          </span>
+          <span className="text-body-sm text-secondary">this month</span>
         </div>
+        <AreaChart
+          points={data.revenue.trend}
+          height={190}
+          format={(value) => formatCurrency(value, { compact: true })}
+        />
       </CardBody>
     </Card>
   );
@@ -335,30 +339,34 @@ function ClientHealth({ health }: { health: ExecutiveDashboard['clientHealth'] }
         </Link>
       </CardHeader>
       <CardBody>
-        <div className="flex items-baseline gap-2">
-          <span className="metric text-display-sm text-primary">{health.average}</span>
-          <span className="text-body-sm text-secondary">average score</span>
-        </div>
-
-        <Progress
-          value={health.average}
-          tone={health.average >= 70 ? 'success' : health.average >= 50 ? 'warning' : 'danger'}
-          className="mt-3"
-        />
-
-        <div className="mt-4 space-y-1.5">
-          {[
-            { label: 'Healthy', count: health.healthy, tone: 'success' as const },
-            { label: 'At risk', count: health.atRisk, tone: 'warning' as const },
-            { label: 'Critical', count: health.critical, tone: 'danger' as const },
-          ].map((row) => (
-            <div key={row.label} className="flex items-center justify-between">
-              <span className="text-body-sm text-secondary">{row.label}</span>
-              <Badge tone={row.count > 0 ? row.tone : 'neutral'}>
-                {row.count} of {total}
-              </Badge>
-            </div>
-          ))}
+        <div className="flex items-center gap-4">
+          <DonutChart
+            size={112}
+            thickness={13}
+            centerValue={String(health.average)}
+            centerLabel="avg score"
+            segments={[
+              { label: 'Healthy', value: health.healthy, color: 'var(--success)' },
+              { label: 'At risk', value: health.atRisk, color: 'var(--warning)' },
+              { label: 'Critical', value: health.critical, color: 'var(--danger)' },
+            ]}
+          />
+          <div className="flex-1 space-y-2">
+            {[
+              { label: 'Healthy', count: health.healthy, dot: 'bg-success' },
+              { label: 'At risk', count: health.atRisk, dot: 'bg-warning' },
+              { label: 'Critical', count: health.critical, dot: 'bg-danger' },
+            ].map((row) => (
+              <div key={row.label} className="flex items-center gap-2">
+                <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', row.dot)} aria-hidden />
+                <span className="flex-1 text-body-sm text-secondary">{row.label}</span>
+                <span className="metric text-body-sm font-medium text-primary">
+                  {row.count}
+                  <span className="text-tertiary">/{total}</span>
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </CardBody>
     </Card>

@@ -107,7 +107,14 @@ const NAV: NavSection[] = [
   },
 ];
 
-export function Sidebar({ collapsed }: { collapsed: boolean }) {
+export function Sidebar({
+  collapsed,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  /** Called when a nav link is tapped — used to close the mobile drawer. */
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const { user, canAny } = useAuth();
 
@@ -151,17 +158,30 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      onClick={onNavigate}
                       title={collapsed ? item.label : undefined}
                       className={cn(
-                        'flex items-center gap-2.5 rounded-md px-2.5 py-2',
-                        'text-body-sm font-medium transition-colors duration-100',
+                        'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2',
+                        'text-body-sm font-medium transition-all duration-150 ease-smooth',
                         collapsed && 'justify-center px-0',
                         active
                           ? 'bg-brand-50 text-brand-600'
                           : 'text-secondary hover:bg-sunken hover:text-primary',
                       )}
                     >
-                      <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                      {active && !collapsed && (
+                        <span
+                          className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-brand-500"
+                          aria-hidden
+                        />
+                      )}
+                      <Icon
+                        className={cn(
+                          'h-4 w-4 shrink-0 transition-transform duration-150',
+                          !active && 'group-hover:scale-110',
+                        )}
+                        aria-hidden
+                      />
                       {!collapsed && <span className="truncate">{item.label}</span>}
                     </Link>
                   </li>

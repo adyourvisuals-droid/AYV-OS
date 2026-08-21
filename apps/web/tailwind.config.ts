@@ -88,6 +88,10 @@ const config: Config = {
           from: { opacity: '0', transform: 'scale(.97)' },
           to: { opacity: '1', transform: 'scale(1)' },
         },
+        'slide-in-left': {
+          from: { transform: 'translateX(-100%)' },
+          to: { transform: 'translateX(0)' },
+        },
         shimmer: {
           '100%': { transform: 'translateX(100%)' },
         },
@@ -95,6 +99,7 @@ const config: Config = {
       animation: {
         'fade-in': 'fade-in .2s cubic-bezier(.16,1,.3,1)',
         'scale-in': 'scale-in .15s cubic-bezier(.16,1,.3,1)',
+        'slide-in-left': 'slide-in-left .22s cubic-bezier(.16,1,.3,1)',
         shimmer: 'shimmer 1.6s infinite',
       },
     },
