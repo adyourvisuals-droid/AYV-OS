@@ -162,6 +162,13 @@ export default function TeamPage() {
     }
   };
 
+  const deleteChannel = async (id: string) => {
+    await api.delete(`/comms/channels/${id}`).catch(() => {});
+    setActiveId(null);
+    setThread(null);
+    await loadOverview();
+  };
+
   if (loading) {
     return (
       <div className="space-y-4 p-6">
@@ -273,6 +280,15 @@ export default function TeamPage() {
                       <span className="text-body-md font-medium text-primary">{thread.conversation.name}</span>
                       {thread.conversation.description && (
                         <span className="truncate text-caption text-tertiary">· {thread.conversation.description}</span>
+                      )}
+                      {canManageAnnouncements && (
+                        <button
+                          onClick={() => void deleteChannel(thread.conversation.id)}
+                          title="Delete channel"
+                          className="ml-auto rounded p-1 text-tertiary hover:bg-danger-bg hover:text-danger"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                        </button>
                       )}
                     </>
                   ) : (
