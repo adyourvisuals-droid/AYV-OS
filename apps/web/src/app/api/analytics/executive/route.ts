@@ -12,12 +12,12 @@ const VALID_PERIODS: DashboardPeriod[] = ['week', 'month', 'quarter', 'year'];
 
 /** The Executive Dashboard payload. Mirrors AnalyticsService#executive. */
 export async function GET(req: NextRequest) {
-  return withAuth(req, [PERMISSIONS.DASHBOARD_EXECUTIVE], async () => {
+  return withAuth(req, [PERMISSIONS.DASHBOARD_EXECUTIVE], async (principal) => {
     const requested = req.nextUrl.searchParams.get('period');
     const period: DashboardPeriod = VALID_PERIODS.includes(requested as DashboardPeriod)
       ? (requested as DashboardPeriod)
       : 'month';
 
-    return successResponse(await executiveDashboard(period));
+    return successResponse(await executiveDashboard(period, principal.organizationId));
   });
 }

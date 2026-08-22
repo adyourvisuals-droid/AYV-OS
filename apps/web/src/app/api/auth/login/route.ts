@@ -69,15 +69,19 @@ async function handleLogin(req: NextRequest, body: { email?: unknown; password?:
     );
   }
 
-  const principal = await loadPrincipal(user.id);
+  // Neither depends on the other's result — loadPrincipal only needs the id,
+  // and the lastLogin bookkeeping write doesn't need the principal — so they
+  // share one round trip instead of paying for two in sequence.
+  const [principal] = await Promise.all([
+    loadPrincipal(user.id),
+    prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date(), lastActiveAt: new Date() },
+    }),
+  ]);
   if (!principal) {
     return errorResponse(401, 'UNAUTHENTICATED', 'Invalid email or password');
   }
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { lastLoginAt: new Date(), lastActiveAt: new Date() },
-  });
 
   const session = await issueSession(principal, {
     userAgent: req.headers.get('user-agent'),

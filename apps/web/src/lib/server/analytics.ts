@@ -23,11 +23,37 @@ interface PeriodRange {
 }
 
 /**
+ * Short-lived per-organization cache, same shape and rationale as
+ * loadPrincipal's principalCache in auth.ts: this fan-out is ~14 independent
+ * queries against a remote database, so a cache miss costs multiple seconds.
+ * A dashboard of aggregate business metrics doesn't need to be fresher than a
+ * few seconds old, and a warm serverless instance serves many requests, so
+ * memoising it here removes that cost from nearly all of them.
+ *
+ * Keyed by organizationId (never just the period) — the cache would leak one
+ * tenant's revenue and pipeline figures to another otherwise, regardless of
+ * how the underlying queries are scoped.
+ */
+const DASHBOARD_CACHE_TTL_MS = 20_000;
+
+const dashboardCache = new Map<string, { data: Awaited<ReturnType<typeof computeExecutiveDashboard>>; expiresAt: number }>();
+
+export async function executiveDashboard(period: DashboardPeriod, organizationId: string) {
+  const cacheKey = `${organizationId}:${period}`;
+  const cached = dashboardCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+  const data = await computeExecutiveDashboard(period);
+  dashboardCache.set(cacheKey, { data, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS });
+  return data;
+}
+
+/**
  * Ported from apps/api's AnalyticsService#executive. Phase 1 computes these
  * live; the response shape is unchanged from what the frontend already
  * expects (see apps/web's dashboard page).
  */
-export async function executiveDashboard(period: DashboardPeriod = 'month') {
+async function computeExecutiveDashboard(period: DashboardPeriod = 'month') {
   const range = resolveRange(period);
 
   const [
